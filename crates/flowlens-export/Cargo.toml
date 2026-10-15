@@ -1,0 +1,16 @@
+[package]
+name = "flowlens-export"
+version = "0.1.0"
+edition = "2021"
+description = "HAR export and SAZ import for FlowLens"
+license = "MIT"
+
+[dependencies]
+flowlens-core = { path = "../flowlens-core" }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+thiserror = "1"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zip = "0.6"
