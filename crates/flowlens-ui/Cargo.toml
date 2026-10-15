@@ -1,0 +1,24 @@
+[package]
+name = "flowlens-ui"
+version = "0.1.0"
+edition = "2021"
+description = "TUI and GUI for FlowLens"
+license = "MIT"
+
+[dependencies]
+flowlens-core = { path = "../flowlens-core" }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+thiserror = "1"
+anyhow = "1"
+
+# TUI dependencies
+ratatui = { version = "0.26", features = ["all-widgets"] }
+crossterm = { version = "0.27" }
+chrono = "0.4.45"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.154"
+
+# GUI dependencies
+egui = "0.30"
+eframe = "0.30"
