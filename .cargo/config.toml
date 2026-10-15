@@ -1,0 +1,8 @@
+# Cargo configuration for FlowLens on Windows
+#
+# The `pcap` crate needs Npcap import libraries (wpcap.lib, Packet.lib).
+# We generated them from the installed Npcap DLLs using MSVC's lib.exe and
+# placed them in ./wpdlib. Point LIBPCAP_LIBDIR there so the build finds them.
+
+[env]
+LIBPCAP_LIBDIR = { value = "D:/github/FlowLens/wpdlib", relative = false }

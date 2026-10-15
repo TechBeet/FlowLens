@@ -1,0 +1,36 @@
+[package]
+name = "flowlens"
+version = "0.1.0"
+edition = "2021"
+description = "A Windows native proxyless HTTP/HTTPS packet capture and debug tool"
+license = "MIT"
+default-run = "flowlens"
+
+[dependencies]
+flowlens-core = { path = "crates/flowlens-core" }
+flowlens-cli = { path = "crates/flowlens-cli" }
+flowlens-capture = { path = "crates/flowlens-capture" }
+flowlens-protocol = { path = "crates/flowlens-protocol" }
+flowlens-ui = { path = "crates/flowlens-ui" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+
+[workspace]
+members = [
+    "crates/flowlens-core",
+    "crates/flowlens-capture",
+    "crates/flowlens-attribution",
+    "crates/flowlens-tls",
+    "crates/flowlens-protocol",
+    "crates/flowlens-storage",
+    "crates/flowlens-export",
+    "crates/flowlens-mcp",
+    "crates/flowlens-ui",
+    "crates/flowlens-cli",
+    "crates/flowlens-driver",
+    "crates/flowlens-installer",
+]
+resolver = "2"

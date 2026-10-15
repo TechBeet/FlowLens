@@ -1,0 +1,53 @@
+# FlowLens - Rust workspace for Windows proxy-less HTTP/HTTPS debugger
+
+# Rust build output
+/target/
+**/target/
+*.pdb
+*.exe
+*.dll
+*.dylib
+*.so
+
+# Rust artifacts / caches
+*.rlib
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS noise
+Thumbs.db
+desktop.ini
+*.tmp
+*.temp
+
+# Build-time helper output (kept out of version control)
+*.obj
+*.ilk
+*.exp
+*.iobj
+
+# Driver build output
+*.sys
+
+# TLS / CA material
+*.pfx
+*.key
+*.crt
+*.pem
+
+# Local data
+*.db
+*.sqlite
+*.sqlite3
+flowlens_data/
+*.har
+*.saz
+*.zip
+
+# Note: Npcap import libraries (wpdlib/*.lib, wpdlib/*.def) ARE committed on
+# purpose so the crate builds on a plain Windows host with only the Npcap
+# runtime installed. See wpdlib/README.md.
