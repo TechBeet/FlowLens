@@ -1,0 +1,44 @@
+// FlowLens Driver INF file
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%ProviderName%
+DriverVer=10/14/2026,0.1.0.0
+CatalogFile=flowlens.cat
+
+[DestinationDirs]
+DefaultDestDir = 13
+FlowlensFile.CopyDir = 12
+
+[SourceDisksNames]
+1=%DiskName%,,
+
+[SourceDisksFiles]
+flowlens.sys=1
+
+[Manufacturer]
+%ManufacturerName%=Standard,NT$ARCH$
+
+[Standard.NT$ARCH$]
+%Flowlens.DeviceDesc%=Flowlens_Device, root\flowlens\0000
+
+[Flowlens_Device.NT]
+CopyFiles=FlowlensFile.CopyDir
+
+[Flowlens.Device.NT.Services]
+AddService = flowlens, 0x00000002, Flowlens_Service_Inst
+
+[Flowlens_Service_Inst]
+DisplayName = %ServiceDesc%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\flowlens.sys
+
+[Strings]
+ProviderName="FlowLens"
+ManufacturerName="FlowLens Project"
+DiskName="FlowLens Driver Disk"
+Flowlens.DeviceDesc="FlowLens WFP Callout Driver"
+ServiceDesc="FlowLens WFP Callout Driver Service"

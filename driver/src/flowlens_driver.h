@@ -1,0 +1,33 @@
+// FlowLens WFP Callout Driver Header
+#pragma once
+
+#include <ntddk.h>
+#include <ndis.h>
+#include <fwpsk.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+NTSTATUS NTAPI DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath);
+VOID NTAPI FlowLensUnload(PDRIVER_OBJECT DriverObject);
+NTSTATUS NTAPI FlowLensDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp);
+
+// WFP Callout constants
+#define FLOWLENS_CALLOUT_IP_V4_TRANSPORT_ID 0x1001
+#define FLOWLENS_CALLOUT_IP_V6_TRANSPORT_ID 0x1002
+#define FLOWLENS_CALLOUT_ALE_AUTH_CONNECT_V4_ID 0x1003
+#define FLOWLENS_CALLOUT_ALE_AUTH_CONNECT_V6_ID 0x1004
+
+// IOCTL codes for user-mode communication
+#define FLOWLENS_IOCTL_START_CAPTURE CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FLOWLENS_IOCTL_STOP_CAPTURE CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FLOWLENS_IOCTL_ADD_FILTER CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FLOWLENS_IOCTL_REMOVE_FILTER CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+// Ring buffer for packet data
+#define RING_BUFFER_SIZE (16 * 1024 * 1024)  // 16MB ring buffer
+
+#ifdef __cplusplus
+}
+#endif
