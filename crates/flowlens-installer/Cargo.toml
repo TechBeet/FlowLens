@@ -1,0 +1,14 @@
+[package]
+name = "flowlens-installer"
+version = "0.1.0"
+edition = "2021"
+description = "Installer for FlowLens"
+license = "MIT"
+
+[dependencies]
+flowlens-core = { path = "../flowlens-core" }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+thiserror = "1"
+anyhow = "1"
+windows-sys = { version = "0.52", features = ["Win32_System_SetupAndMigration", "Win32_Foundation"] }
