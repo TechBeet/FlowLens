@@ -1,6 +1,6 @@
 use tokio::sync::broadcast;
 
-use crate::models::{SessionId, TrafficEvent, TrafficFilter};
+use crate::models::{TrafficEvent, TrafficFilter};
 
 /// EventBus trait for publishing and subscribing to traffic events
 pub trait EventBus: Send + Sync + 'static {
@@ -48,14 +48,19 @@ impl Default for BroadcastEventBus {
 
 impl EventBus for BroadcastEventBus {
     fn publish(&self, event: TrafficEvent) -> Result<(), EventBusError> {
-        let _ = self.sender.send(event);
-        Ok(())
+        match self.sender.send(event) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(EventBusError::EventTooLarge),
+        }
     }
-    
+
     fn subscribe(&self, filter: TrafficFilter) -> broadcast::Receiver<TrafficEvent> {
+        // Filter is applied downstream by the subscriber; the bus itself is
+        // agnostic to filters so that different subscribers can use different
+        // ones without interfering with each other.
         self.sender.subscribe()
     }
-    
+
     fn subscriber_count(&self) -> usize {
         self.sender.receiver_count()
     }

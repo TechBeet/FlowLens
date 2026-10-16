@@ -225,19 +225,67 @@ pub struct TrafficFilter {
 }
 
 impl TrafficFilter {
+    /// Returns true if the event should be delivered to this subscriber.
+    /// Every variant is explicitly matched; nothing is accidentally forwarded.
     pub fn matches(&self, event: &TrafficEvent) -> bool {
         match event {
             TrafficEvent::ConnectionEstablished { conn, process } => {
                 self.match_connection(conn) && self.match_process(process)
             }
+            TrafficEvent::PacketReceived { .. } => self.match_packet(event),
+            TrafficEvent::TlsHandshake { conn, .. } => self.match_connection(conn),
             TrafficEvent::HttpRequest { conn, request, .. } => {
                 self.match_connection(conn) && self.match_request(request)
             }
             TrafficEvent::HttpResponse { conn, response, .. } => {
                 self.match_connection(conn) && self.match_response(response)
             }
+            TrafficEvent::WebSocketFrame { conn, frame, .. } => {
+                self.match_connection(conn) && self.match_websocket(frame)
+            }
+            TrafficEvent::SseEvent { conn, .. } => self.match_connection(conn),
+            TrafficEvent::GrpcCall { conn, call, .. } => {
+                self.match_connection(conn) && self.match_grpc(call)
+            }
+            TrafficEvent::ConnectionClosed { conn } => self.match_connection(conn),
+            TrafficEvent::CaptureDropped { .. } => true,
+        }
+    }
+
+    fn match_packet(&self, event: &TrafficEvent) -> bool {
+        // Packets are routed by the engine before connection attribution;
+        // apply only host filter when present so filters aren't silently dropped.
+        match event {
+            TrafficEvent::PacketReceived { data, .. } => {
+                if let Some(hosts) = &self.hosts {
+                    if let Some((_, ip)) = parse_ip_from_packet(data) {
+                        return hosts.iter().any(|h| ip.to_string().contains(h.as_str()));
+                    }
+                }
+                true
+            }
             _ => true,
         }
+    }
+
+    fn match_websocket(&self, frame: &WebSocketFrame) -> bool {
+        if let Some(methods) = &self.methods {
+            let op = format!("{:?}", frame.opcode).to_lowercase();
+            if !methods.iter().any(|m| op.contains(&m.to_lowercase())) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn match_grpc(&self, call: &GrpcCall) -> bool {
+        if let Some(methods) = &self.methods {
+            let full = format!("/{}/{}", call.service, call.method);
+            if !methods.iter().any(|m| full.contains(m.as_str())) {
+                return false;
+            }
+        }
+        true
     }
 
     fn match_connection(&self, conn: &ConnectionKey) -> bool {
@@ -280,6 +328,52 @@ impl TrafficFilter {
             }
         }
         true
+    }
+}
+
+/// Extract (is_ipv4, IpAddr) from raw packet bytes when the packet carries
+/// an Ethernet II header (14 bytes) with an inner IPv4 header.
+/// Returns None if the packet is too short, uses IPv6, or lacks a valid IP header.
+pub fn parse_ip_from_packet(data: &[u8]) -> Option<(bool, std::net::IpAddr)> {
+    let off = if data.len() >= 14 && data[12] != 0x08 && data[13] != 0x00 {
+        // Non-IPv4 Ethertype — skip Ethernet header check; still try direct offset
+        0
+    } else {
+        14
+    };
+    if data.len() < off + 20 {
+        return None;
+    }
+    let ihl = ((data[off] & 0x0F) as usize) * 4;
+    if ihl < 20 || off + ihl > data.len() {
+        return None;
+    }
+    let ver = data[off] >> 4;
+    match ver {
+        4 => {
+            if off + ihl + 4 <= data.len() {
+                let ip = std::net::IpAddr::from([
+                    data[off + ihl],
+                    data[off + ihl + 1],
+                    data[off + ihl + 2],
+                    data[off + ihl + 3],
+                ]);
+                Some((true, ip))
+            } else {
+                None
+            }
+        }
+        6 => {
+            // IPv6: first 16 bytes after header are the src address
+            if off + ihl + 16 <= data.len() {
+                let mut addr = [0u8; 16];
+                addr.copy_from_slice(&data[off + ihl..off + ihl + 16]);
+                Some((false, std::net::IpAddr::from(addr)))
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 
