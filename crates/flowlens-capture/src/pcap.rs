@@ -4,8 +4,6 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use flowlens_core::models::TransportProtocol;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkType {
     Ethernet,
