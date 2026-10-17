@@ -18,6 +18,7 @@ pub enum InstallerError {
 /// FlowLens installer
 pub struct Installer {
     driver_path: PathBuf,
+    #[allow(dead_code)]
     cert_path: PathBuf,
 }
 

@@ -10,7 +10,7 @@ use crossterm::{
 };
 use flowlens_core::{
     event_bus::EventBus,
-    models::{TrafficFilter, TrafficRow, TrafficSession},
+    models::{TrafficFilter, TrafficRow},
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -24,35 +24,33 @@ use crate::UiFrontend;
 #[derive(Default)]
 pub struct AppState {
     events: Arc<std::sync::Mutex<Vec<TrafficRow>>>,
-    sessions: Arc<std::sync::Mutex<Vec<TrafficSession>>>,
     running: Arc<std::sync::atomic::AtomicBool>,
+    scroll_offset: usize,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
             events: Arc::new(std::sync::Mutex::new(Vec::new())),
-            sessions: Arc::new(std::sync::Mutex::new(Vec::new())),
             running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            scroll_offset: 0,
         }
     }
 }
 
 /// TUI frontend for displaying network traffic
 #[derive(Default)]
-pub struct TuiFrontend {
-    app_state: Option<AppState>,
-}
+pub struct TuiFrontend;
 
 impl TuiFrontend {
     pub fn new() -> Self {
-        Self { app_state: None }
+        Self
     }
 }
 
 impl UiFrontend for TuiFrontend {
     fn run(&self, bus: Arc<dyn EventBus>) -> anyhow::Result<()> {
-        let app = AppState::new();
+        let mut app = AppState::new();
         app.running.store(true, std::sync::atomic::Ordering::SeqCst);
 
         // Spawn a thread to receive events from the broadcast bus
@@ -93,52 +91,121 @@ impl UiFrontend for TuiFrontend {
             terminal.draw(|frame| {
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
-                    .constraints([Constraint::Length(3), Constraint::Fill(1)])
+                    .constraints([Constraint::Length(3), Constraint::Length(1), Constraint::Fill(1)])
                     .split(frame.size());
 
-                let title = Paragraph::new("FlowLens - Network Traffic Monitor (press 'q' to quit)")
-                    .style(Style::default().fg(Color::White).bg(Color::Blue));
+                let title = Paragraph::new(
+                    "FlowLens - Network Traffic Monitor (q=quit, n/p=scroll, c=clear)",
+                )
+                .style(Style::default().fg(Color::White).bg(Color::Blue));
                 frame.render_widget(title, chunks[0]);
 
-                let events = app.events.lock().unwrap();
-                if !events.is_empty() {
-                    let header =
-                        Row::new(vec!["Time", "Type", "Source", "Destination", "Info"]);
-                    let rows: Vec<Row> = events
-                        .iter()
-                        .map(|row| {
-                            Row::new(vec![
-                                format!("{}", row.timestamp),
-                                row.event_type.clone(),
-                                row.src_addr.clone(),
-                                row.dst_addr.clone(),
-                                format!("{} | {}", row.method, row.status),
-                            ])
-                        })
-                        .collect();
+                let stats = app.events.lock().unwrap();
+                let conn = stats.iter().filter(|r| r.event_type == "connection").count();
+                let http = stats.iter().filter(|r| r.event_type.contains("http")).count();
+                let tls = stats.iter().filter(|r| r.event_type == "tls").count();
+                drop(stats);
 
-                    let table = Table::new(
-                        rows,
-                        &[
-                            Constraint::Length(12),
-                            Constraint::Length(12),
-                            Constraint::Length(22),
-                            Constraint::Length(22),
-                            Constraint::Fill(1),
-                        ],
+                let status = Paragraph::new(format!(
+                    "Conn:{}  HTTP:{}  TLS:{}",
+                    conn, http, tls
+                ))
+                .style(Style::default().fg(Color::Yellow));
+                frame.render_widget(status, chunks[1]);
+
+                let events = app.events.lock().unwrap();
+                if events.is_empty() {
+                    let placeholder = Paragraph::new(
+                        "Waiting for traffic events...\nStart a capture to see events here.",
                     )
-                    .header(header)
+                    .style(Style::default().fg(Color::Gray))
                     .block(Block::default().title("Events").borders(Borders::ALL));
-                    frame.render_widget(table, chunks[1]);
+                    frame.render_widget(placeholder, chunks[2]);
+                    return;
                 }
+
+                // Apply scroll offset (kept in sync below)
+                let start = app.scroll_offset.min(events.len().saturating_sub(1));
+                let visible: Vec<Row> = events
+                    .iter()
+                    .enumerate()
+                    .skip(start)
+                    .take(chunks[2].height.saturating_sub(2) as usize)
+                    .map(|(i, row)| {
+                        let ts_str = format!("{}", row.timestamp);
+                        let ts_short = ts_str.chars().take(12).collect::<String>();
+                        let info = if row.path.len() > 30 {
+                            format!("{}...", &row.path[..30])
+                        } else {
+                            row.path.clone()
+                        };
+                        let color = match row.event_type.as_str() {
+                            "connection" => Color::Green,
+                            "http_request" | "http_response" => Color::Cyan,
+                            "tls" => Color::Yellow,
+                            "websocket" => Color::Magenta,
+                            "sse" => Color::LightCyan,
+                            "closed" => Color::DarkGray,
+                            "dropped" => Color::Red,
+                            _ => Color::White,
+                        };
+                        let _ = i;
+                        Row::new(vec![
+                            ts_short,
+                            row.event_type.clone(),
+                            row.src_addr.clone(),
+                            row.dst_addr.clone(),
+                            format!("{} {}", row.method, row.status),
+                            info,
+                        ])
+                        .style(Style::default().fg(color))
+                    })
+                    .collect();
+
+                let table = Table::new(
+                    visible,
+                    &[
+                        Constraint::Length(12),
+                        Constraint::Length(12),
+                        Constraint::Length(22),
+                        Constraint::Length(22),
+                        Constraint::Length(14),
+                        Constraint::Fill(1),
+                    ],
+                )
+                .header(
+                    Row::new(vec!["Time", "Type", "Source", "Destination", "Status", "Info"])
+                        .style(Style::default().bg(Color::Gray).fg(Color::Black)),
+                )
+                .block(
+                    Block::default()
+                        .title(format!("Events ({})", events.len()))
+                        .borders(Borders::ALL),
+                );
+                frame.render_widget(table, chunks[2]);
             })?;
 
             if event::poll(Duration::from_millis(50))? {
-                if let Event::Key(KeyEvent { code: KeyCode::Char('q'), .. })
+                match event::read()? {
+                    Event::Key(KeyEvent { code: KeyCode::Char('q'), .. })
                     | Event::Key(KeyEvent { code: KeyCode::Char('Q'), .. })
-                    | Event::Key(KeyEvent { code: KeyCode::Esc, .. }) = event::read()?
-                {
-                    break;
+                    | Event::Key(KeyEvent { code: KeyCode::Esc, .. }) => break,
+                    Event::Key(KeyEvent { code: KeyCode::Char('c'), .. }) => {
+                        app.events.lock().unwrap().clear();
+                        app.scroll_offset = 0;
+                    }
+                    Event::Key(KeyEvent { code: KeyCode::Char('n'), .. })
+                    | Event::Key(KeyEvent { code: KeyCode::Down, .. }) => {
+                        let len = app.events.lock().unwrap().len();
+                        if len > 0 {
+                            app.scroll_offset = (app.scroll_offset + 1).min(len - 1);
+                        }
+                    }
+                    Event::Key(KeyEvent { code: KeyCode::Char('p'), .. })
+                    | Event::Key(KeyEvent { code: KeyCode::Up, .. }) => {
+                        app.scroll_offset = app.scroll_offset.saturating_sub(1);
+                    }
+                    _ => {}
                 }
             }
         }
