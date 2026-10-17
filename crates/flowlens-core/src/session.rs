@@ -1,8 +1,5 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-
-use tokio::sync::{broadcast, Mutex as AsyncMutex};
-
 use crate::errors::CoreError;
 use crate::models::{ConnectionKey, SessionId, TrafficEvent, TrafficSession};
 
