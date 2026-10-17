@@ -5,8 +5,6 @@
 //! - Query and filtering
 //! - Index management
 
-use std::path::Path;
-
 use flowlens_core::models::{SessionId, TrafficSession};
 
 /// Storage engine trait

@@ -1,6 +1,5 @@
 //! TLS MITM and certificate management for FlowLens
 
-use std::collections::HashMap;
 use std::sync::RwLock;
 
 use flowlens_core::models::{ConnectionKey, TlsVersion};
