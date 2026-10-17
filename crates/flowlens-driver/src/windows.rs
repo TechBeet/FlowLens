@@ -2,10 +2,6 @@
 //!
 //! This module provides Windows API bindings for WFP driver management.
 
-use windows_sys::Win32::Foundation::*;
-use windows_sys::Win32::Networking::WinSock::*;
-use windows_sys::Win32::System::Services::*;
-
 /// Driver service name
 pub const DRIVER_SERVICE_NAME: &str = "flowlens";
 
