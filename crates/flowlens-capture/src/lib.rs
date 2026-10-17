@@ -289,19 +289,133 @@ pub fn spawn_capture(mut eng: Engine, bus: Arc<dyn EventBus>) -> anyhow::Result<
     Ok(())
 }
 
-/// Background task that fabricates events onto an EventBus (for tests/demo).
+/// Background task that fabricates realistic events onto an EventBus (for tests/demo).
 pub fn spawn_mock_producer(bus: Arc<dyn EventBus>) {
+    use std::sync::atomic::AtomicU64;
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let _ = COUNTER;
     tokio::spawn(async move {
-        let engine = MockEngine::new();
-        let mut counter: u64 = 0;
+        let mut n: u64 = 0;
+        let sleep = std::time::Duration::from_millis(80);
         tracing::info!("Mock event producer started");
         loop {
-            let event = engine.synthesize_event(counter);
-            let _ = bus.publish(event);
-            counter += 1;
-            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            let ev = generate_event(n);
+            if bus.publish(ev).is_err() {
+                break;
+            }
+            n += 1;
+            tokio::time::sleep(sleep).await;
         }
     });
+}
+
+
+
+fn generate_event(n: u64) -> TrafficEvent {
+    use flowlens_core::models::*;
+    let ts = flowlens_core::models::now_micros();
+    let conn = ConnectionKey {
+        src_addr: format!("192.168.1.{}", (n % 254) + 1)
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:0".parse().unwrap()),
+        dst_addr: match (n % 10) as u32 {
+            0..=2 => format!("93.184.216.{}:443", (n % 20) + 1).parse().unwrap(),
+            3..=4 => format!("142.250.80.{}:443", (n % 5) + 1).parse().unwrap(),
+            5..=7 => format!("151.101.1.{}:443", (n % 5) + 1).parse().unwrap(),
+            8 => format!("127.0.0.1:{}", 8080 + n % 100).parse().unwrap(),
+            _ => format!("10.0.0.{}:443", (n % 10) + 1).parse().unwrap(),
+        },
+        protocol: if n % 4 == 0 { TransportProtocol::Udp } else { TransportProtocol::Tcp },
+        connection_id: n,
+        timestamp: ts,
+        interface_guid: None,
+    };
+    let domain = match (n % 10) as u8 {
+        0 => "example.com",
+        1 => "google.com",
+        2 => "facebook.com",
+        3 => "cdn.example.net",
+        4 => "api.github.com",
+        5 => "streaming.twitch.tv",
+        6 => "wss.chat.io",
+        7 => "realtime.app.io",
+        8 => "localhost",
+        _ => "unknown.local",
+    };
+    let proc = ProcessInfo {
+        pid: (n % 3000 + 100) as u32,
+        name: format!("app_{}.exe", n % 8),
+        exe_path: Some(format!(r"C:\Program Files\App{}\App{}.exe", n % 8, n % 8).into()),
+        user_sid: "S-1-5-21-1234567890-1001".to_string(),
+        arch: ProcessArch::X64,
+        match_quality: MatchQuality::Heuristic,
+    };
+    match (n % 12) as u8 {
+        0 | 1 => TrafficEvent::ConnectionEstablished { conn, process: proc },
+        2 => TrafficEvent::TlsHandshake {
+            conn,
+            session: TlsSession { tls_version: TlsVersion::Tls12, cipher_suite: "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384".to_string(), server_name: Some(domain.to_string()), alpn: Some("h2".to_string()), client_hello: None, server_hello: None, master_secret: None },
+        },
+        3 => TrafficEvent::TlsHandshake {
+            conn,
+            session: TlsSession { tls_version: TlsVersion::Tls13, cipher_suite: "TLS_AES_256_GCM_SHA384".to_string(), server_name: Some(domain.to_string()), alpn: Some("h2".to_string()), client_hello: None, server_hello: None, master_secret: None },
+        },
+        4 => TrafficEvent::HttpRequest {
+            session_id: SessionId(n), conn,
+            request: HttpRequest {
+                method: match n % 5 { 0 => "GET", 1 => "POST", 2 => "PUT", 3 => "DELETE", _ => "PATCH" }.to_string(),
+                url: format!("https://{domain}/api/v{}", n % 5), path: format!("/api/v{}", n % 5),
+                request_line_version: HttpVersion::Http11,
+                headers: vec![("Host".to_string(), domain.to_string()), ("Accept".to_string(), "application/json".to_string())],
+                body: None, body_size: 0, timestamp: ts,
+            },
+        },
+        5 | 6 => TrafficEvent::HttpResponse {
+            session_id: SessionId(n), conn,
+            response: HttpResponse {
+                status_code: [200u16, 201, 204, 301, 400, 404, 500][(n % 7) as usize],
+                status_text: match [200u16, 201, 204, 301, 400, 404, 500][(n % 7) as usize] {
+                    200 => "OK", 201 => "Created", 204 => "No Content", 301 => "Moved Permanently",
+                    400 => "Bad Request", 404 => "Not Found", _ => "Internal Server Error",
+                }.to_string(),
+                version: HttpVersion::Http11,
+                headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+                body: None, body_size: ((n % 5000) + 100) as usize, timestamp: ts,
+            },
+        },
+        7 => TrafficEvent::WebSocketFrame {
+            session_id: SessionId(n), conn,
+            frame: WebSocketFrame {
+                opcode: match n % 4 { 0 => WsOpcode::Text, 1 => WsOpcode::Binary, 2 => WsOpcode::Ping, _ => WsOpcode::Pong },
+                payload: match n % 3 {
+                    0 => format!("{{\"type\":\"msg\",\"id\":{}}}", n).into_bytes(),
+                    1 => b"heartbeat".to_vec(),
+                    _ => b"{\"event\":\"ping\"}".to_vec(),
+                },
+                payload_size: (n % 512) as usize, is_masked: false, timestamp: ts,
+            },
+        },
+        8 => TrafficEvent::SseEvent {
+            session_id: SessionId(n), conn,
+            event: SseEvent {
+                event_type: Some(match n % 4 { 0 => "message", 1 => "update", 2 => "notification", _ => "ping" }.to_string()),
+                id: Some(format!("{}", n)),
+                data: format!("Event data for tick {}", n),
+                retry_ms: None, timestamp: ts,
+            },
+        },
+        9 => TrafficEvent::GrpcCall {
+            session_id: SessionId(n), conn,
+            call: GrpcCall {
+                service: "google.protobuf".to_string(),
+                method: match n % 3 { 0 => "Empty.Unempty", 1 => "test.Service/Method", _ => "flowlens.Monitor/Stream" }.to_string(),
+                request_frames: Vec::new(), response_frames: Vec::new(),
+                status: Some(0), is_streaming: false, timestamp: ts,
+            },
+        },
+        10 => TrafficEvent::ConnectionClosed { conn },
+        _ => TrafficEvent::CaptureDropped { reason: format!("mock-sim {}", n), count: 1 },
+    }
 }
 
 #[cfg(test)]
@@ -338,5 +452,11 @@ mod tests {
         };
         assert!(extract_connection_info_from(&pkt, 0).is_none());
     }
-}
 
+    #[test]
+    fn test_generate_event_variants() {
+        for n in 0..40u64 {
+            let _ = generate_event(n);
+        }
+    }
+}
