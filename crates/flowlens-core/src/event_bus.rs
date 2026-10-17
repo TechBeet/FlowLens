@@ -30,13 +30,12 @@ pub enum EventBusError {
 /// In-memory broadcast event bus implementation
 pub struct BroadcastEventBus {
     sender: broadcast::Sender<TrafficEvent>,
-    filter: TrafficFilter,
 }
 
 impl BroadcastEventBus {
     pub fn new(capacity: usize) -> Self {
         let (sender, _) = broadcast::channel(capacity);
-        Self { sender, filter: TrafficFilter::default() }
+        Self { sender }
     }
 }
 
@@ -54,7 +53,7 @@ impl EventBus for BroadcastEventBus {
         }
     }
 
-    fn subscribe(&self, filter: TrafficFilter) -> broadcast::Receiver<TrafficEvent> {
+    fn subscribe(&self, _filter: TrafficFilter) -> broadcast::Receiver<TrafficEvent> {
         // Filter is applied downstream by the subscriber; the bus itself is
         // agnostic to filters so that different subscribers can use different
         // ones without interfering with each other.

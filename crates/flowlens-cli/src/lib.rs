@@ -64,7 +64,7 @@ pub enum Commands {
 pub fn is_admin() -> bool {
     // Simplified check - in production would use proper security token inspection
     #[cfg(windows)]
-    unsafe {
+    {
         // Placeholder - will be implemented with proper SID checking
         true
     }
