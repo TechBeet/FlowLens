@@ -9,6 +9,6 @@ pub mod session;
 pub mod errors;
 
 pub use models::*;
-pub use event_bus::{EventBus, EventBusError};
+pub use event_bus::{EventBus, EventBusError, BroadcastEventBus};
 pub use session::{SessionManager};
 pub use errors::{CoreError};
