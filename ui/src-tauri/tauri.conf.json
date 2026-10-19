@@ -1,0 +1,13 @@
+{
+  "productName": "FlowLens",
+  "version": "0.1.0",
+  "identifier": "com.flowlens.app",
+  "build": {
+    "beforeBuildCommand": "cd ./../.. && npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "bundle": {
+    "active": false
+  }
+}
