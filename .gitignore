@@ -48,6 +48,12 @@ flowlens_data/
 *.saz
 *.zip
 
+# UI build output
+ui/node_modules/
+ui/dist/
+ui/.vite/
+ui/src-tauri/target/
+
 # Note: Npcap import libraries (wpdlib/*.lib, wpdlib/*.def) ARE committed on
 # purpose so the crate builds on a plain Windows host with only the Npcap
 # runtime installed. See wpdlib/README.md.
