@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "identifier": "com.flowlens.app",
   "build": {
-    "beforeBuildCommand": "cd ./../.. && npm run build",
-    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:3000",
     "frontendDist": "../dist"
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
   }
 }
