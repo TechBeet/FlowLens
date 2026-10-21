@@ -32,5 +32,6 @@ members = [
     "crates/flowlens-cli",
     "crates/flowlens-driver",
     "crates/flowlens-installer",
+    "crates/flowlens-integration",
 ]
 resolver = "2"

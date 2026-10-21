@@ -24,6 +24,15 @@ pub enum Commands {
         /// Use GUI mode instead of TUI
         #[arg(short, long)]
         gui: bool,
+        /// Print status report and exit
+        #[arg(long, default_value = "false")]
+        status: bool,
+        /// Print last 20 events and exit
+        #[arg(long, default_value = "false")]
+        events: bool,
+        /// Print active filters and exit
+        #[arg(long, default_value = "false")]
+        filters: bool,
     },
     /// Stop a running capture
     Stop {

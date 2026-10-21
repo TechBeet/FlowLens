@@ -3,7 +3,7 @@
 //! This example demonstrates how to capture and analyze HTTP traffic.
 
 use std::time::Duration;
-use flowlens_capture::{CaptureEngine, Engine, spawn_capture};
+use flowlens_capture::Engine;
 use flowlens_protocol::Http1Parser;
 
 #[tokio::main]
@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     // Create capture engine - auto-detects Npcap or falls back to mock
-    let bus = std::sync::Arc::new(flowlens_core::event_bus::BroadcastEventBus::default());
+    let _bus = std::sync::Arc::new(flowlens_core::event_bus::BroadcastEventBus::default());
     let mut engine = Engine::auto();
     
     tracing::info!("Starting capture engine...");

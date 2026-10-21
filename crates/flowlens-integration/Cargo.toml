@@ -1,0 +1,15 @@
+[package]
+name = "flowlens-integration"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flowlens-core = { path = "../flowlens-core" }
+flowlens-capture = { path = "../flowlens-capture" }
+flowlens-cli = { path = "../flowlens-cli" }
+flowlens-ui = { path = "../flowlens-ui" }
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"

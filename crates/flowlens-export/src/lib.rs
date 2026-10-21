@@ -60,7 +60,6 @@ impl HarExporter for HarExporterImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flowlens_core::models::{ConnectionKey, ProcessInfo, ProcessArch, MatchQuality, TransportProtocol};
 
     #[test]
     fn test_export_empty() {
