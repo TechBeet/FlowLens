@@ -10,8 +10,7 @@
 *.so
 
 # Rust artifacts / caches
-*.rlib
-Cargo.lock
+# Cargo.lock is committed intentionally for reproducible builds
 
 # IDE
 .vscode/
@@ -57,3 +56,4 @@ ui/src-tauri/target/
 # Note: Npcap import libraries (wpdlib/*.lib, wpdlib/*.def) ARE committed on
 # purpose so the crate builds on a plain Windows host with only the Npcap
 # runtime installed. See wpdlib/README.md.
+
