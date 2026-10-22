@@ -116,10 +116,10 @@ impl AttributionEngine for InMemoryAttributionEngine {
         }
 
         // Fall back to IP Helper
-        if let Some(pid) = self.ip_helper.get_pid_from_tcp_socket(
-            conn.src_addr,
-            conn.dst_addr,
-        ) {
+        if let Some(pid) = self
+            .ip_helper
+            .get_pid_from_tcp_socket(conn.src_addr, conn.dst_addr)
+        {
             let process = ProcessInfo {
                 pid,
                 name: format!("pid_{}", pid),
@@ -128,7 +128,10 @@ impl AttributionEngine for InMemoryAttributionEngine {
                 arch: ProcessArch::Unknown,
                 match_quality: MatchQuality::Heuristic,
             };
-            self.active_connections.write().unwrap().insert(conn.clone(), process.clone());
+            self.active_connections
+                .write()
+                .unwrap()
+                .insert(conn.clone(), process.clone());
             return Some(process);
         }
 
