@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use flowlens_core::event_bus::EventBus;
 
-mod tui;
 mod gui;
+mod tui;
 
-pub use tui::TuiFrontend;
 pub use gui::GuiFrontend;
+pub use tui::TuiFrontend;
 
 pub trait UiFrontend: Send + Sync {
     fn run(&self, bus: Arc<dyn EventBus>) -> anyhow::Result<()>;
