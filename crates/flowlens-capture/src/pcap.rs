@@ -4,17 +4,19 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LinkType {
+    #[default]
     Ethernet,
     Raw,
     Loopback,
     LinuxCooked,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PacketDirection {
     Inbound,
+    #[default]
     Outbound,
 }
 
@@ -29,32 +31,31 @@ pub struct RawPacket {
     pub dst_mac: Option<String>,
 }
 
-impl Default for LinkType {
-    fn default() -> Self { Self::Ethernet }
-}
-impl Default for PacketDirection {
-    fn default() -> Self { Self::Outbound }
-}
-
 /// Parse IPv4 packet to extract (src_ip, src_port, dst_ip, dst_port, protocol_byte)
 pub fn parse_ipv4(payload: &[u8]) -> Option<(IpAddr, u16, IpAddr, u16, u8)> {
-    if payload.len() < 20 { return None; }
+    if payload.len() < 20 {
+        return None;
+    }
     let ver = payload[0] >> 4;
-    if ver != 4 { return None; }
+    if ver != 4 {
+        return None;
+    }
     let ihl = ((payload[0] & 0x0F) as usize) * 4;
-    if ihl < 20 || ihl + 4 > payload.len() { return None; }
+    if ihl < 20 || ihl + 4 > payload.len() {
+        return None;
+    }
     let proto = payload[9];
     let src = IpAddr::from([payload[12], payload[13], payload[14], payload[15]]);
     let dst = IpAddr::from([payload[16], payload[17], payload[18], payload[19]]);
     match proto {
         6 => {
-            let sp = ((payload[ihl] as u16) << 8) | payload[ihl+1] as u16;
-            let dp = ((payload[ihl+2] as u16) << 8) | payload[ihl+3] as u16;
+            let sp = ((payload[ihl] as u16) << 8) | payload[ihl + 1] as u16;
+            let dp = ((payload[ihl + 2] as u16) << 8) | payload[ihl + 3] as u16;
             Some((src, sp, dst, dp, proto))
         }
         17 => {
-            let sp = ((payload[ihl] as u16) << 8) | payload[ihl+1] as u16;
-            let dp = ((payload[ihl+2] as u16) << 8) | payload[ihl+3] as u16;
+            let sp = ((payload[ihl] as u16) << 8) | payload[ihl + 1] as u16;
+            let dp = ((payload[ihl + 2] as u16) << 8) | payload[ihl + 3] as u16;
             Some((src, sp, dst, dp, proto))
         }
         _ => None,
@@ -63,7 +64,9 @@ pub fn parse_ipv4(payload: &[u8]) -> Option<(IpAddr, u16, IpAddr, u16, u8)> {
 
 /// Convert raw packet bytes (with Ethernet II header) into a RawPacket
 pub fn parse_ethernet(data: &[u8]) -> Option<RawPacket> {
-    if data.len() < 14 { return None; }
+    if data.len() < 14 {
+        return None;
+    }
     let link_type = if data[12] == 0x08 && data[13] == 0x00 {
         // IPv4
         LinkType::Ethernet
@@ -74,10 +77,14 @@ pub fn parse_ethernet(data: &[u8]) -> Option<RawPacket> {
         LinkType::Raw
     };
     let ts = now_micros();
-    let src_mac = format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-        data[0], data[1], data[2], data[3], data[4], data[5]);
-    let dst_mac = format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-        data[6], data[7], data[8], data[9], data[10], data[11]);
+    let src_mac = format!(
+        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        data[0], data[1], data[2], data[3], data[4], data[5]
+    );
+    let dst_mac = format!(
+        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        data[6], data[7], data[8], data[9], data[10], data[11]
+    );
     Some(RawPacket {
         timestamp: ts,
         interface_name: String::new(),
@@ -90,8 +97,10 @@ pub fn parse_ethernet(data: &[u8]) -> Option<RawPacket> {
 }
 
 fn now_micros() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH)
-        .map(|d| d.as_micros() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_micros() as i64)
+        .unwrap_or(0)
 }
 /// Npcap capture engine using the pcap crate
 pub struct PcapEngine {
@@ -121,7 +130,11 @@ impl PcapEngine {
 
     /// Pick a capture device: prefer Npcap interfaces, fall back to first
     pub fn pick_device() -> Option<String> {
-        let devices: Vec<String> = pcap::Device::list().ok()?.into_iter().map(|d| d.name).collect();
+        let devices: Vec<String> = pcap::Device::list()
+            .ok()?
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
         for name in &devices {
             if name.starts_with('\\') && name.to_lowercase().contains("npcap") {
                 return Some(name.clone());
@@ -144,15 +157,15 @@ impl PcapEngine {
         let cap = pcap::Capture::from_device(device.as_str())
             .ok()
             .and_then(|d| {
-                let mut cap = d.promisc(true).snaplen(65535).timeout(100)
-                    .open().ok()?;
+                let mut cap = d.promisc(true).snaplen(65535).timeout(100).open().ok()?;
                 if let Some(f) = self.bpf_filter.clone() {
                     cap.filter(&f, true).ok()?;
                 }
                 Some(cap)
             });
 
-        self.running.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.running
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         tracing::info!(device = %device, "Npcap capture started");
 
         if let Some(mut cap) = cap {
@@ -165,7 +178,9 @@ impl PcapEngine {
                             if let Some(rp) = parse_ethernet(pkt.data) {
                                 if let Ok(mut q) = queue.lock() {
                                     q.push_back(rp);
-                                    if q.len() > 4096 { q.pop_front(); }
+                                    if q.len() > 4096 {
+                                        q.pop_front();
+                                    }
                                 }
                             }
                         }
@@ -183,7 +198,8 @@ impl PcapEngine {
     }
 
     pub fn stop(&mut self) -> anyhow::Result<()> {
-        self.running.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.running
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         tracing::info!("Npcap capture stopped");
         Ok(())
     }
@@ -192,7 +208,9 @@ impl PcapEngine {
         self.running.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    pub fn device_name(&self) -> &str { &self.device_name }
+    pub fn device_name(&self) -> &str {
+        &self.device_name
+    }
 
     /// Drain up to `limit` packets
     pub fn drain_packets(&self, limit: usize) -> Vec<RawPacket> {
@@ -200,10 +218,26 @@ impl PcapEngine {
         if let Ok(mut q) = self.queue.lock() {
             while let Some(p) = q.pop_front() {
                 out.push(p);
-                if out.len() >= limit { break; }
+                if out.len() >= limit {
+                    break;
+                }
             }
         }
         out
+    }
+
+    /// List all available Npcap devices on the system.
+    ///
+    /// Returns an empty vector if Npcap is not installed or no devices
+    /// can be enumerated. This is safe to call even without Npcap.
+    pub fn list_devices() -> Vec<String> {
+        match pcap::Device::list() {
+            Ok(devices) => devices.into_iter().map(|d| d.name).collect(),
+            Err(e) => {
+                tracing::warn!("Failed to list Npcap devices: {}", e);
+                Vec::new()
+            }
+        }
     }
 }
 
@@ -237,4 +271,3 @@ mod tests {
         e.stop().unwrap();
     }
 }
-
