@@ -1,7 +1,7 @@
 //! HAR export and SAZ import for FlowLens
 
-use std::path::Path;
 use flowlens_core::models::TrafficSession;
+use std::path::Path;
 
 /// HAR export trait
 pub trait HarExporter: Send + Sync {
@@ -18,11 +18,15 @@ pub trait SazImporter: Send + Sync {
 pub struct HarExporterImpl;
 
 impl HarExporterImpl {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Default for HarExporterImpl {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HarExporter for HarExporterImpl {
@@ -39,7 +43,7 @@ impl HarExporter for HarExporterImpl {
                 }
             })
         }).collect();
-        
+
         let har = serde_json::json!({
             "log": {
                 "version": "1.2",
