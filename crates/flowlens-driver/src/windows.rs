@@ -10,19 +10,32 @@ pub fn get_driver_path() -> std::path::PathBuf {
     let mut path = std::env::current_exe().unwrap_or_default();
     path.pop();
     path.push("driver");
-    path.push(format!("flowlens{}.sys", if is_x64() { "x64" } else if is_arm64() { "arm64" } else { "x86" }));
+    path.push(format!(
+        "flowlens{}.sys",
+        if is_x64() {
+            "x64"
+        } else if is_arm64() {
+            "arm64"
+        } else {
+            "x86"
+        }
+    ));
     path
 }
 
 /// Check if running on x64 architecture
 pub fn is_x64() -> bool {
     // Check environment variable or use actual API
-    std::env::var("PROCESSOR_ARCHITECTURE").map(|v| v == "AMD64").unwrap_or(true)
+    std::env::var("PROCESSOR_ARCHITECTURE")
+        .map(|v| v == "AMD64")
+        .unwrap_or(true)
 }
 
 /// Check if running on ARM64 architecture
 pub fn is_arm64() -> bool {
-    std::env::var("PROCESSOR_ARCHITECTURE").map(|v| v == "ARM64").unwrap_or(false)
+    std::env::var("PROCESSOR_ARCHITECTURE")
+        .map(|v| v == "ARM64")
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -40,6 +53,11 @@ mod tests {
     #[test]
     fn test_driver_path() {
         let path = get_driver_path();
-        assert_eq!(path.file_name().unwrap().to_str().unwrap().ends_with(".sys"), true);
+        assert!(path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .ends_with(".sys"));
     }
 }
