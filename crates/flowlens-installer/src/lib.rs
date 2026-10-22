@@ -24,7 +24,10 @@ pub struct Installer {
 
 impl Installer {
     pub fn new(driver_path: PathBuf, cert_path: PathBuf) -> Self {
-        Self { driver_path, cert_path }
+        Self {
+            driver_path,
+            cert_path,
+        }
     }
 
     /// Install the WFP driver
