@@ -1,557 +1,286 @@
-//! Modern GUI for FlowLens - Network Traffic Analyzer
-//!
-//! Features:
-//! - Real-time traffic event display from EventBus
-//! - Keyboard shortcuts for terminal/debug mode control
-//! - Debug mode with raw event details
-//! - Filter input with keyboard shortcut
-//! - stdout logging for screen-reader compatibility
+//! FlowLens GUI 图形界面 - 网络流量分析器
 
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-
-use egui::{Color32, Widget};
 use eframe::App;
+use egui::{Color32, Layout, FontData, FontDefinitions, FontFamily, Align};
+use flowlens_core::{event_bus::EventBus, models::{TrafficFilter, TrafficRow}};
 
-use flowlens_core::{
-    event_bus::{BroadcastEventBus, EventBus},
-    models::{TrafficFilter, TrafficRow},
-};
-
+const BASE_FONT_SIZE: f32 = 24.0;
+const HEADING_FONT_SIZE: f32 = 30.0;
+const STATUS_FONT_SIZE: f32 = 20.0;
+const CELL_FONT_SIZE: f32 = 22.0;
 const MAX_EVENTS: usize = 5000;
+const AUTO_PRUNE_THRESHOLD: usize = 500;
 
-/// Log UI state change to stdout for screen-reader compatibility
-fn log_ui_state(message: &str) {
-    eprintln!("[UI] {}", message);
-}
+#[allow(dead_code)]
+fn log_ui(msg: &str) { eprintln!("[UI] {}", msg); }
 
-#[derive(Clone)]
-pub struct Theme {
-    pub bg: Color32,
-    pub panel: Color32,
-    pub border: Color32,
-    pub text: Color32,
-    pub text2: Color32,
-    pub accent: Color32,
-    pub success: Color32,
-    pub warning: Color32,
-    pub danger: Color32,
-    pub info: Color32,
-    pub row_even: Color32,
-    pub row_odd: Color32,
-    pub row_sel: Color32,
-}
-
-impl Theme {
-    pub fn dark() -> Self {
-        Theme {
-            bg: Color32::from_rgb(10, 10, 18),
-            panel: Color32::from_rgb(18, 18, 28),
-            border: Color32::from_rgb(40, 40, 60),
-            text: Color32::from_rgb(235, 235, 250),
-            text2: Color32::from_rgb(160, 160, 190),
-            accent: Color32::from_rgb(100, 150, 255),
-            success: Color32::from_rgb(70, 200, 110),
-            warning: Color32::from_rgb(250, 160, 50),
-            danger: Color32::from_rgb(255, 80, 80),
-            info: Color32::from_rgb(70, 150, 255),
-            row_even: Color32::from_rgb(14, 14, 22),
-            row_odd: Color32::from_rgb(18, 18, 28),
-            row_sel: Color32::from_rgb(35, 50, 80),
+fn setup_chinese_fonts(ctx: &egui::Context) {
+    let mut fonts = FontDefinitions::default();
+    let candidates: Vec<&str> = if cfg!(target_os = "windows") {
+        vec![r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\msyhbd.ttc", r"C:\Windows\Fonts\Deng.ttf", r"C:\Windows\Fonts\simsun.ttc", r"C:\Windows\Fonts\simhei.ttf"]
+    } else if cfg!(target_os = "macos") {
+        vec!["/System/Library/Fonts/Supplemental/SF Pro Text.otf", "/System/Library/Fonts/STHeiti Light.ttc", "/System/Library/Fonts/PingFang.ttc"]
+    } else {
+        vec!["/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.otf", "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"]
+    };
+    for path in &candidates {
+        if let Ok(bytes) = std::fs::read(path) {
+            let mut fd = FontData::from_owned(bytes);
+            fd.index = 0;
+            let base = path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or("font");
+            let name = base.trim_end_matches('.').trim_end_matches("ttc").trim_end_matches("ttf").trim_end_matches("otf");
+            let name = if name.is_empty() { "chinese" } else { name };
+            let name: String = name.to_string();
+            let mut prop = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+            prop.retain(|n| n != &name); prop.insert(0, name.clone());
+            let mut mono = fonts.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
+            mono.retain(|n| n != &name); mono.insert(0, name.clone());
+            fonts.font_data.insert(name.clone(), Arc::new(fd));
+            fonts.families.insert(FontFamily::Proportional, prop);
+            fonts.families.insert(FontFamily::Monospace, mono);
+            log_ui(&format!("Loaded Chinese font: {} ({}px)", path, BASE_FONT_SIZE as u32));
+            break;
         }
     }
-
-    pub fn light() -> Self {
-        Theme {
-            bg: Color32::from_rgb(248, 248, 252),
-            panel: Color32::from_rgb(255, 255, 255),
-            border: Color32::from_rgb(220, 220, 235),
-            text: Color32::from_rgb(25, 25, 45),
-            text2: Color32::from_rgb(80, 80, 110),
-            accent: Color32::from_rgb(65, 105, 225),
-            success: Color32::from_rgb(52, 168, 83),
-            warning: Color32::from_rgb(251, 160, 30),
-            danger: Color32::from_rgb(234, 67, 53),
-            info: Color32::from_rgb(66, 133, 244),
-            row_even: Color32::from_rgb(255, 255, 255),
-            row_odd: Color32::from_rgb(250, 250, 254),
-            row_sel: Color32::from_rgb(230, 235, 255),
-        }
-    }
+    ctx.set_fonts(fonts);
+    ctx.set_pixels_per_point(1.25);
 }
 
-fn event_color(event_type: &str, theme: &Theme) -> Color32 {
-    match event_type {
-        "connection" => theme.success,
-        "http_request" => theme.info,
-        "http_response" => Color32::from_rgb(70, 220, 140),
-        "tls" => theme.warning,
-        "websocket" => Color32::from_rgb(170, 80, 255),
-        "sse" => Color32::from_rgb(0, 220, 210),
-        _ => theme.text2,
-    }
+// ─── Helper functions ───
+fn event_type_cn(e: &str) -> String {
+    match e { "connection" => "连接".to_string(), "http_request" => "HTTP 请求".to_string(),
+        "http_response" => "HTTP 响应".to_string(), "tls" => "TLS".to_string(),
+        "websocket" => "WebSocket".to_string(), "sse" => "SSE".to_string(), _ => e.to_string() }
 }
-
+fn event_color(e: &str, dark: bool) -> Color32 {
+    let c = |r,g,b| Color32::from_rgb(r,g,b);
+    match e { "connection" => c(70,220,120), "http_request" => c(80,160,255),
+        "http_response" => c(80,230,130), "tls" => c(255,170,60),
+        "websocket" => c(180,90,255), "sse" => c(0,230,220),
+        _ => if dark { c(170,170,200) } else { c(90,90,120) } }
+}
 fn format_ts(ts: i64) -> String {
     if ts <= 0 { return "00:00:00".to_string(); }
-    let s = ts / 1000;
-    let ms = (ts % 1000) / 100;
+    let s = ts / 1000; let ms = (ts % 1000) / 100;
     format!("{:02}:{:02}:{:02}.{}", (s/3600)%24, (s/60)%60, s%60, ms)
 }
-
 fn fmt_bytes(size: usize) -> String {
     if size >= 1024*1024 { format!("{:.2} MB", size as f64/(1024.0*1024.0)) }
     else if size >= 1024 { format!("{:.2} KB", size as f64/1024.0) }
     else { format!("{} B", size) }
 }
-
-fn trunc(s: &str, n: usize) -> String {
-    if s.len() <= n { s.to_string() } else { format!("{}...", &s[..n-3]) }
+fn trunc(s: &str, max: usize) -> String {
+    if s.len() <= max { s.to_string() } else { format!("{}…", &s[..max]) }
 }
 
-struct FlowLensGui {
+// ─── GUI Frontend struct ───
+pub struct GuiFrontend {
     events: Arc<Mutex<Vec<TrafficRow>>>,
-    bus: Arc<BroadcastEventBus>,
-    selected: Option<usize>,
-    filter: TrafficFilter,
     running: Arc<std::sync::atomic::AtomicBool>,
-    theme: Theme,
-    dark: bool,
     debug_mode: bool,
-    show_filter_input: bool,
+    dark_mode: bool,
     filter_input: String,
+    show_filter_input: bool,
+    status_msg: String,
+    selected_row: Option<usize>,
+    bus: Option<Arc<dyn EventBus>>,
 }
-
-impl FlowLensGui {
-    fn new(bus: Arc<BroadcastEventBus>) -> Self {
-        let running = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let events = Arc::new(Mutex::new(Vec::new()));
-        
-        Self {
-            events,
-            bus,
-            selected: None,
-            filter: TrafficFilter::default(),
-            running: running.clone(),
-            theme: Theme::dark(),
-            dark: true,
-            debug_mode: false,
-            show_filter_input: false,
-            filter_input: String::new(),
+impl Default for GuiFrontend {
+    fn default() -> Self {
+        Self { events: Arc::new(Mutex::new(Vec::new())), running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            debug_mode: false, dark_mode: true, filter_input: String::new(), show_filter_input: false,
+            status_msg: "就绪".to_string(), selected_row: None, bus: None }
+    }
+}
+impl GuiFrontend {
+    pub fn new() -> Self { Self::default() }
+    pub fn with_bus(mut self, bus: Arc<dyn EventBus>) -> Self { self.bus = Some(bus); self }
+    fn start_capture(&mut self) {
+        if let Some(bus) = &self.bus {
+            self.start_capture_inner(bus.clone());
         }
     }
-
-    /// Subscribe to the EventBus and receive traffic events
-    /// This is the key fix for proper event bus integration
-    fn spawn_task(&self) {
-        let ev = self.events.clone();
-        let run = self.running.clone();
-        let bus = self.bus.clone();
-        run.store(true, std::sync::atomic::Ordering::SeqCst);
-        
-        tokio::spawn(async move {
+    fn start_capture_inner(&self, bus: Arc<dyn EventBus>) {
+        if self.running.load(std::sync::atomic::Ordering::SeqCst) { return; }
+        self.running.store(true, std::sync::atomic::Ordering::SeqCst);
+        let events_arc = self.events.clone();
+        let running = self.running.clone();
+        std::thread::spawn(move || {
             let mut rx = bus.subscribe(TrafficFilter::default());
-            
-            eprintln!("[INFO] EventBus subscription successful");
-            
-            while run.load(std::sync::atomic::Ordering::SeqCst) {
+            while running.load(std::sync::atomic::Ordering::SeqCst) {
                 match rx.blocking_recv() {
                     Ok(event) => {
-                        if let Some(row) = TrafficRow::from_event(&event) {
-                            if let Ok(mut v) = ev.lock() {
-                                v.push(row);
-                                // Auto-prune to MAX_EVENTS (oldest first)
-                                while v.len() > MAX_EVENTS {
-                                    v.remove(0);
+                        if let Ok(mut evts) = events_arc.lock() {
+                            if let Some(row) = TrafficRow::from_event(&event) {
+                                evts.push(row);
+                                let len = evts.len();
+                                if len > MAX_EVENTS {
+                                    evts.drain(..len - AUTO_PRUNE_THRESHOLD);
                                 }
                             }
                         }
-                    }
-                    Err(_) => {
-                        break;
-                    }
+                    } Err(_) => break,
                 }
             }
-            eprintln!("[INFO] Event subscription loop terminated");
         });
     }
-
-    fn stop_task(&self) { 
-        self.running.store(false, std::sync::atomic::Ordering::SeqCst); 
-    }
-
-    fn flush_events(&mut self) {
-        if let Ok(mut events) = self.events.lock() {
-            let count = events.len();
-            events.clear();
-            self.selected = None;
-            log_ui_state(&format!("Flushed {} events", count));
-        }
-    }
-
-    fn apply_filter(&mut self) {
-        let nh: Vec<String> = self.filter_input
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        self.filter.hosts = if nh.is_empty() { None } else { Some(nh) };
-        self.show_filter_input = false;
-        log_ui_state(&format!("Filter applied: hosts={:?}", self.filter.hosts));
-    }
-
-    fn update_display_with_debug(&self) {
-        let ev = self.events.lock().unwrap();
-        let count = ev.len();
-        if self.debug_mode {
-            log_ui_state(&format!("Event count: {}", count));
-            for (i, row) in ev.iter().take(5).enumerate() {
-                log_ui_state(&format!("  [{}] {} {} -> {} {} {} {}",
-                    i,
-                    row.timestamp,
-                    row.event_type,
-                    row.src_addr,
-                    row.dst_addr,
-                    row.method,
-                    row.status
-                ));
-            }
-        }
-    }
-
-    fn get_selected(&self) -> Option<TrafficRow> {
-        self.selected.and_then(|i| self.events.lock().unwrap().get(i).cloned())
-    }
-
-    fn stats(&self) -> HashMap<String, usize> {
-        let ev = self.events.lock().unwrap();
-        let mut m: HashMap<String, usize> = HashMap::new();
-        m.insert("total".to_string(), ev.len());
-        for r in ev.iter() { *m.entry(r.event_type.clone()).or_insert(0) += 1; }
-        m
-    }
+    fn clear_events(&mut self) { self.events.lock().unwrap().clear(); self.selected_row = None; self.status_msg = "已清空".to_string(); log_ui("事件已清空"); }
+    fn toggle_debug(&mut self) { self.debug_mode = !self.debug_mode; self.status_msg = if self.debug_mode { "调试模式已开启" } else { "调试模式已关闭" }.to_string(); }
 }
 
-impl Drop for FlowLensGui {
-    fn drop(&mut self) { self.stop_task(); }
-}
-
-impl App for FlowLensGui {
+// ─── egui App 实现 ───
+impl App for GuiFrontend {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let theme = self.theme.clone();
-        let repaint = if self.events.lock().unwrap().is_empty() { 100 } else { 16 };
-        ctx.request_repaint_after(std::time::Duration::from_millis(repaint));
+        let dark = self.dark_mode;
+        let evt_count = self.events.lock().map(|e| e.len()).unwrap_or(0);
 
-        // Top bar
-        egui::TopBottomPanel::top("top").frame(
-            egui::Frame::default().fill(theme.panel).stroke(egui::Stroke::new(1.0_f32, theme.border))
-        ).show(ctx, |ui| {
+        ctx.style_mut(|style| {
+            style.visuals.extreme_bg_color = if dark { Color32::from_rgb(18, 18, 28) } else { Color32::from_rgb(238, 240, 245) };
+            style.visuals.panel_fill = if dark { Color32::from_rgb(24, 24, 36) } else { Color32::from_rgb(246, 247, 250) };
+            style.visuals.override_text_color = if dark { Some(Color32::from_rgb(230, 235, 245)) } else { Some(Color32::from_rgb(30, 30, 50)) };
+        });
+
+        egui::TopBottomPanel::top("title").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("\u{25C8} FlowLens").color(theme.accent).size(17.0));
-                ui.add_space(20.0);
-                let st = self.stats();
-                ui.label(format!("Events: {}", st.get("total").unwrap_or(&0)));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("\u{2715} Clear").clicked() {
-                        self.events.lock().unwrap().clear();
-                        self.selected = None;
-                        log_ui_state("Events cleared via button");
-                    }
-                    ui.add_space(8.0);
-                    if ui.button("d").clicked() {
-                        self.debug_mode = !self.debug_mode;
-                        log_ui_state(&format!("Debug mode: {}", if self.debug_mode { "ON" } else { "OFF" }));
-                    }
-                    if ui.button("f").clicked() {
-                        self.flush_events();
-                    }
-                    if ui.button(if theme.bg.g() < 20 { "\u{2600}" } else { "\u{1F319}" }).clicked() {
-                        self.dark = !self.dark;
-                        self.theme = if self.dark { Theme::dark() } else { Theme::light() };
-                        log_ui_state(&format!("Theme toggled to {}", if self.dark { "dark" } else { "light" }));
-                    }
+                ui.add_space(16.0);
+                ui.label(egui::RichText::new("FlowLens - Network Traffic Analyzer")
+                    .color(if dark { Color32::from_rgb(0, 210, 255) } else { Color32::from_rgb(0, 100, 200) })
+                    .size(HEADING_FONT_SIZE));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button("Exit").clicked() { ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
                 });
             });
-            
-            // Show keyboard shortcuts in debug mode
-            if self.debug_mode {
-                ui.label(egui::RichText::new("Shortcuts: r-refresh | /-filter | d-debug | f-flush")
-                    .color(theme.text2).size(11.0));
-            }
         });
 
-        // Handle keyboard shortcuts for debug mode
-        if ctx.input(|i| i.key_pressed(egui::Key::R)) {
-            log_ui_state("Refresh stats triggered via keyboard");
-            self.update_display_with_debug();
-        }
-        if ctx.input(|i| i.key_pressed(egui::Key::Slash)) {
-            log_ui_state("Filter input triggered via keyboard");
-            self.show_filter_input = true;
-            self.filter_input.clear();
-        }
-        if ctx.input(|i| i.key_pressed(egui::Key::F)) {
-            log_ui_state("Flush events triggered via keyboard");
-            self.flush_events();
-        }
-        if ctx.input(|i| i.key_pressed(egui::Key::D)) {
-            self.debug_mode = !self.debug_mode;
-            log_ui_state(&format!("Debug mode: {}", if self.debug_mode { "ON" } else { "OFF" }));
-        }
-
-        // Left panel
-        egui::SidePanel::left("side").default_width(200.0).resizable(false).frame(
-            egui::Frame::default().fill(theme.panel).stroke(egui::Stroke::new(1.0_f32, theme.border))
-        ).show(ctx, |ui| {
-            ui.strong("Filters");
-            ui.add_space(6.0);
-            ui.label("Host:");
-            let mut hs = self.filter.hosts.as_ref().map(|h| h.join(",")).unwrap_or_default();
-            egui::TextEdit::singleline(&mut hs).hint_text("example.com").ui(ui);
-            if ui.button("Apply").clicked() {
-                let nh: Vec<String> = hs.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-                self.filter.hosts = if nh.is_empty() { None } else { Some(nh) };
-                log_ui_state(&format!("Filter hosts updated: {:?}", self.filter.hosts));
-            }
-            if ui.button("Reset").clicked() {
-                self.filter = TrafficFilter::default();
-                log_ui_state("Filter reset to default");
-            }
-            if ui.button("Flush (f)").clicked() {
-                self.flush_events();
-            }
-
-            ui.add_space(12.0);
-            ui.separator();
-            ui.add_space(12.0);
-
-            ui.strong("Stats");
-            ui.add_space(6.0);
-            let st = self.stats();
-            let cols = vec![
-                ("connection", theme.success),
-                ("http_request", theme.info),
-                ("http_response", Color32::from_rgb(70, 220, 140)),
-                ("tls", theme.warning),
-                ("websocket", Color32::from_rgb(170, 80, 255)),
-                ("sse", Color32::from_rgb(0, 220, 210)),
-            ];
-            for (k, c) in cols {
-                if let Some(&n) = st.get(k) {
-                    if n > 0 {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("\u{25CF}").color(c).size(9.0));
-                            ui.add_space(4.0);
-                            ui.label(format!("{}: {}", k, n));
-                        });
-                    }
-                }
-            }
-            ui.add_space(4.0);
-            ui.label(format!("Total: {}", st.get("total").unwrap_or(&0)));
-            
-            ui.add_space(12.0);
-            ui.separator();
-            ui.add_space(12.0);
-            
-            ui.strong("Debug Info");
-            ui.label(format!("Subscribers: {}", self.bus.subscriber_count()));
-            ui.label(format!("Event count: {}", self.bus.get_event_count()));
-            ui.label(format!("Debug Mode: {}", if self.debug_mode { "ON" } else { "OFF" }));
+        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Start Capture").clicked() { self.start_capture(); self.status_msg = "Capturing".to_string(); log_ui("Start capture"); }
+                if ui.button("Stop").clicked() { self.running.store(false, std::sync::atomic::Ordering::SeqCst); self.status_msg = "Stopped".to_string(); log_ui("Stop capture"); }
+                if ui.button("Clear").clicked() { self.clear_events(); }
+                if ui.button("Debug Mode").clicked() { self.toggle_debug(); }
+                if ui.button("Theme").clicked() { self.dark_mode = !self.dark_mode; log_ui("Toggle theme"); }
+                if ui.button("Filter").clicked() { self.show_filter_input = !self.show_filter_input; if self.show_filter_input { self.filter_input.clear(); } }
+                ui.add_space(12.0); ui.separator();
+                ui.label("Hotkeys: D-Debug F-Clear T-Theme /-Filter");
+            });
         });
 
-        // Center panel
-        egui::CentralPanel::default().frame(
-            egui::Frame::default().fill(theme.bg).rounding(2.0)
-        ).show(ctx, |ui| {
-            let ev = self.events.lock().unwrap();
-            if ev.is_empty() {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let c = if self.debug_mode { Color32::YELLOW } else { Color32::GREEN };
+                ui.label(egui::RichText::new(format!("Events: {} | Status: {} | Theme: {}", evt_count, self.status_msg, if dark { "Dark" } else { "Light" }))
+                    .size(STATUS_FONT_SIZE).color(c));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(egui::RichText::new("FlowLens v0.1.0").size(STATUS_FONT_SIZE - 4.0));
+                });
+            });
+
+            if self.show_filter_input {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Filter keyword:").size(STATUS_FONT_SIZE));
+                    ui.text_edit_singleline(&mut self.filter_input);
+                    if ui.button("Apply").clicked() { self.show_filter_input = false; log_ui("Filter applied"); }
+                    if ui.button("Cancel").clicked() { self.show_filter_input = false; self.filter_input.clear(); }
+                });
+                ui.separator();
+            }
+
+            if evt_count == 0 {
+                ui.allocate_space(egui::vec2(ui.available_width(), 200.0));
                 ui.centered_and_justified(|ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.label(egui::RichText::new("\u{25C8}").color(theme.accent).size(56.0));
-                        ui.add_space(16.0);
-                        ui.label("No events captured yet");
-                        ui.add_space(6.0);
-                        ui.label(egui::RichText::new("Start a capture to see network events").color(theme.text2));
-                    });
+                    ui.label(egui::RichText::new("No events - Click 'Start Capture'").size(STATUS_FONT_SIZE));
                 });
             } else {
                 ui.horizontal(|ui| {
-                    ui.strong("Time"); ui.add_space(6.0);
-                    ui.strong("Type"); ui.add_space(6.0);
-                    ui.strong("Source"); ui.add_space(6.0);
-                    ui.strong("Dest"); ui.add_space(6.0);
-                    ui.strong("Method"); ui.add_space(6.0);
-                    ui.strong("Path"); ui.add_space(6.0);
-                    ui.strong("Status"); ui.add_space(6.0);
-                    ui.strong("Size");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(format!("{} events", ev.len()));
-                    });
+                    for h in ["Time", "Type", "Source", "Destination", "Size", "Method/Path"] {
+                        ui.label(egui::RichText::new(h).size(CELL_FONT_SIZE).strong());
+                    }
                 });
                 ui.separator();
-
-                egui::ScrollArea::vertical().id_salt("ev").show(ui, |ui| {
-                    for (i, row) in ev.iter().enumerate() {
-                        let sel = self.selected == Some(i);
-                        let even = i % 2 == 0;
-                        let bg = if sel { theme.row_sel } else if even { theme.row_even } else { theme.row_odd };
-
-                        ui.painter().rect(
-                            ui.min_rect(),
-                            egui::Rounding::same(3.0),
-                            bg,
-                            egui::Stroke::new(0.5_f32, theme.border),
-                        );
-                        ui.set_min_size(egui::vec2(0.0, 24.0));
-
-                        let tc = if sel { theme.accent } else { theme.text2 };
-                        ui.label(egui::RichText::new(format_ts(row.timestamp)).color(tc).size(11.0));
-                        ui.add_space(6.0);
-
-                        let ec = event_color(&row.event_type, &theme);
-                        ui.label(egui::RichText::new(&row.event_type).color(ec).size(11.0));
-                        ui.add_space(6.0);
-
-                        let ac = if sel { theme.accent } else { theme.text };
-                        ui.monospace(egui::RichText::new(trunc(&row.src_addr, 14)).color(ac).size(11.0));
-                        ui.add_space(6.0);
-                        ui.monospace(egui::RichText::new(trunc(&row.dst_addr, 14)).color(ac).size(11.0));
-                        ui.add_space(6.0);
-                        ui.label(egui::RichText::new(&row.method).color(ac).size(11.0));
-                        ui.add_space(6.0);
-                        ui.label(egui::RichText::new(trunc(&row.path, 22)).color(theme.text).size(11.0));
-                        ui.add_space(6.0);
-
-                        let sc = if row.status.starts_with('2') { theme.success }
-                            else if row.status.starts_with('3') { theme.info }
-                            else if row.status.starts_with('4') { theme.warning }
-                            else { theme.danger };
-                        ui.label(egui::RichText::new(&row.status).color(sc).size(11.0));
-                        ui.add_space(6.0);
-                        let szc = if sel { theme.accent } else { theme.text2 };
-                        ui.label(egui::RichText::new(fmt_bytes(row.body_size)).color(szc).size(11.0));
-
-                        if ui.interact(ui.max_rect(), egui::Id::new(i), egui::Sense::click()).clicked() {
-                            self.selected = if self.selected == Some(i) { None } else { Some(i) };
-                        }
+                let start = evt_count.saturating_sub(500);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for row in &self.events.lock().unwrap()[start..] {
+                        let c = event_color(&row.event_type, dark);
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(format_ts(row.timestamp)).color(c).size(CELL_FONT_SIZE));
+                            ui.label(egui::RichText::new(event_type_cn(&row.event_type)).color(c).size(CELL_FONT_SIZE));
+                            ui.label(egui::RichText::new(row.src_addr.to_string()).size(CELL_FONT_SIZE - 2.0));
+                            ui.label(egui::RichText::new(row.dst_addr.to_string()).size(CELL_FONT_SIZE - 2.0));
+                            ui.label(egui::RichText::new(fmt_bytes(row.body_size)).size(CELL_FONT_SIZE));
+                            ui.label(egui::RichText::new(format!("{} {}", trunc(&row.method, 10), trunc(&row.path, 20))).size(CELL_FONT_SIZE - 2.0));
+                        });
                     }
                 });
             }
         });
 
-        // Right panel
-        if let Some(_s) = self.selected {
-            if let Some(row) = self.get_selected() {
-                let ts_str = format_ts(row.timestamp);
-                let sz_str = fmt_bytes(row.body_size);
-                
-                egui::SidePanel::right("details").default_width(360.0).resizable(true).frame(
-                    egui::Frame::default().fill(theme.panel).stroke(egui::Stroke::new(1.0_f32, theme.border))
-                ).show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.strong("Details");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("\u{2715}").clicked() { self.selected = None; }
-                        });
-                    });
-                    ui.add_space(12.0);
-                    ui.separator();
-                    ui.add_space(12.0);
-
-                    let ec = event_color(&row.event_type, &theme);
-                    ui.label(egui::RichText::new(&row.event_type).color(ec).size(15.0));
-                    ui.add_space(16.0);
-
-                    let pairs: Vec<(&str, &str)> = vec![
-                        ("Timestamp", &ts_str),
-                        ("Source", &row.src_addr),
-                        ("Destination", &row.dst_addr),
-                        ("Method", &row.method),
-                        ("Path", &row.path),
-                        ("Status", &row.status),
-                        ("Size", &sz_str),
-                    ];
-                    for (label, val) in pairs {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(format!("{}:", label)).color(theme.text2).size(12.0));
-                            ui.add_space(8.0);
-                            ui.label(egui::RichText::new(val).color(theme.text).size(12.0));
-                        });
-                    }
-                });
-            } else {
-                self.selected = None;
-            }
-        }
-
-        // Filter input window (shown when '/' is pressed)
-        if self.show_filter_input {
-            egui::Window::new("Filter Input").default_width(400.0).show(ctx, |ui| {
-                ui.label("Enter host filters (comma-separated):");
-                ui.add_space(8.0);
-                egui::TextEdit::multiline(&mut self.filter_input)
-                    .hint_text("example.com, api.example.org")
-                    .desired_width(f32::INFINITY)
-                    .show(ui);
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Apply").clicked() {
-                        self.apply_filter();
-                    }
-                    if ui.button("Cancel").clicked() {
-                        self.show_filter_input = false;
-                        log_ui_state("Filter input canceled");
-                    }
+        egui::TopBottomPanel::bottom("statusbar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let c = if self.debug_mode { Color32::YELLOW } else { Color32::GREEN };
+                ui.label(egui::RichText::new(&self.status_msg).size(STATUS_FONT_SIZE - 2.0).color(c));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(egui::RichText::new(if dark { "Dark Theme" } else { "Light Theme" }).size(STATUS_FONT_SIZE - 4.0));
                 });
             });
-        }
+        });
 
-        // Debug panel at bottom (when debug mode is on)
         if self.debug_mode {
-            egui::TopBottomPanel::bottom("debug").default_height(150.0).show(ctx, |ui| {
-                ui.strong("Debug View - Raw Event Details");
+            egui::SidePanel::right("debug_panel").show(ctx, |ui| {
+                ui.strong(egui::RichText::new("Event Details").size(CELL_FONT_SIZE));
                 ui.separator();
-                let ev = self.events.lock().unwrap();
-                for (i, row) in ev.iter().take(20).enumerate() {
-                    ui.label(format!(
-                        "{}. [{}] {} {} -> {} | {} {} | {} | {}",
-                        i, row.timestamp, row.event_type, row.src_addr, row.dst_addr,
-                        row.method, row.status, fmt_bytes(row.body_size), trunc(&row.path, 30)
-                    ));
+                let events = self.events.lock().unwrap();
+                if events.is_empty() { ui.label("No events to display"); }
+                else {
+                    for (i, row) in events.iter().rev().take(80).enumerate() {
+                        ui.collapsing(format!("#{} {} {}", i+1, event_type_cn(&row.event_type), format_ts(row.timestamp)), |ui| {
+                            ui.label(format!("Source: {}", row.src_addr));
+                            ui.label(format!("Destination: {}", row.dst_addr));
+                            ui.label(format!("Method: {}", row.method));
+                            ui.label(format!("Path: {}", row.path));
+                            ui.label(format!("Status: {}", row.status));
+                            ui.label(format!("Size: {} bytes", row.body_size));
+                        });
+                    }
                 }
             });
         }
+
+        ctx.input_mut(|i| {
+            if i.consume_key(egui::Modifiers::ALT, egui::Key::D) { self.toggle_debug(); }
+            if i.consume_key(egui::Modifiers::ALT, egui::Key::F) { self.clear_events(); }
+            if i.consume_key(egui::Modifiers::ALT, egui::Key::T) { self.dark_mode = !self.dark_mode; log_ui("Toggle theme"); }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::F) { self.clear_events(); }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::D) { self.toggle_debug(); }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::T) { self.dark_mode = !self.dark_mode; log_ui("Toggle theme"); }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::Slash) { self.show_filter_input = !self.show_filter_input; if self.show_filter_input { self.filter_input.clear(); } }
+        });
     }
 }
 
-pub struct GuiFrontend {
-    bus: Arc<BroadcastEventBus>,
-}
-
-impl GuiFrontend {
-    pub fn new(bus: Arc<BroadcastEventBus>) -> Self { Self { bus } }
-}
-
-impl crate::UiFrontend for GuiFrontend {
-    fn run(&self, _bus: Arc<dyn EventBus>) -> anyhow::Result<()> {
-        let bc = self.bus.clone();
-        let opts = eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default()
-                .with_inner_size([1600.0, 900.0])
-                .with_title("FlowLens - Network Traffic Analyzer"),
-            ..Default::default()
+use crate::UiFrontend;
+impl UiFrontend for GuiFrontend {
+    fn run(&self, bus: Arc<dyn EventBus>) -> anyhow::Result<()> {
+        let app = Self {
+            events: self.events.clone(),
+            running: self.running.clone(),
+            debug_mode: self.debug_mode,
+            dark_mode: self.dark_mode,
+            filter_input: self.filter_input.clone(),
+            show_filter_input: self.show_filter_input,
+            status_msg: self.status_msg.clone(),
+            selected_row: self.selected_row,
+            bus: Some(bus),
         };
-        eframe::run_native("FlowLens", opts, Box::new(|_cc| {
-            let app = FlowLensGui::new(bc.clone());
-            app.spawn_task();
-            Ok(Box::new(app))
-        })).map_err(|e| anyhow::anyhow!("GUI error: {:?}", e))?;
-        Ok(())
+        eframe::run_native(
+            "FlowLens - Network Traffic Analyzer",
+            eframe::NativeOptions::default(),
+            Box::new(|_cc| Ok(Box::new(app))),
+        ).map_err(|e| anyhow::anyhow!(e.to_string()))
     }
-
     fn stop(&self) -> anyhow::Result<()> {
-        tracing::info!("GUI stopped");
+        self.running.store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 }
@@ -559,37 +288,9 @@ impl crate::UiFrontend for GuiFrontend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn test_creation() {
-        let bus = Arc::new(BroadcastEventBus::new(64));
-        let g = FlowLensGui::new(bus);
-        assert_eq!(g.events.lock().unwrap().len(), 0);
-    }
-    #[test]
-    fn test_dark_theme() {
-        let t = Theme::dark();
-        assert!(t.bg.r() < 20 && t.bg.g() < 20 && t.bg.b() < 22);
-    }
-    #[test]
-    fn test_light_theme() {
-        let t = Theme::light();
-        assert!(t.bg.r() > 245 && t.bg.g() > 245 && t.bg.b() > 248);
-    }
-    #[test]
-    fn test_fmt_bytes() {
-        assert_eq!(fmt_bytes(500), "500 B");
-        assert_eq!(fmt_bytes(1500), "1.46 KB");
-        assert_eq!(fmt_bytes(1500000), "1.43 MB");
-    }
-    #[test]
-    fn test_trunc() {
-        assert_eq!(trunc("hello", 10), "hello");
-        assert!(trunc("hello world long text", 8).ends_with("..."));
-    }
-    #[test]
-    fn test_format_ts() {
-        assert_eq!(format_ts(0), "00:00:00");
-        assert_eq!(format_ts(123456789), "10:17:36.7");
-    }
+    #[test] fn test_gui_creation() { let _gui = GuiFrontend::new(); }
+    #[test] fn test_event_type_cn() { assert_eq!(event_type_cn("connection"), "连接"); }
+    #[test] fn test_format_ts() { assert_eq!(format_ts(0), "00:00:00"); }
+    #[test] fn test_fmt_bytes() { assert_eq!(fmt_bytes(0), "0 B"); assert_eq!(fmt_bytes(1024), "1.00 KB"); }
+    #[test] fn test_trunc() { assert_eq!(trunc("hello", 10), "hello"); assert_eq!(trunc("hello world", 5), "hello…"); }
 }
-
