@@ -97,7 +97,7 @@ pub fn ensure_admin() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_cli_parse_help() {
         let cli = Cli::try_parse_from(["flowlens", "--help"]);
