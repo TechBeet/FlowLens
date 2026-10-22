@@ -1,0 +1,327 @@
+name: Build & Release (Multi-Platform)
+
+on:
+  push:
+    branches: [main, develop, master]
+    paths:
+      - 'src/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # -------------------------------------------------------------------------
+  # First Layer: Core Platforms
+  # -------------------------------------------------------------------------
+  build-windows-x64:
+    name: Windows x64 (msvc)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Build (debug)
+        run: cargo build --workspace --all-targets
+      - name: Run tests
+        run: cargo test --workspace
+      - name: Build (release)
+        run: cargo build --workspace --release
+      - name: Package artifacts
+        run: |
+          mkdir release
+          Copy-Item target/release/*.exe release/
+          Compress-Archive -Path release/* -DestinationPath flowlens-win64.zip
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowlens-win64-msvc
+          path: flowlens-win64.zip
+          retention-days: 7
+
+  build-macos-arm:
+    name: macOS (Apple Silicon)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-aarch64-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-aarch64-
+            ${{ runner.os }}-cargo-
+      - name: Build for aarch64
+        run: cargo build --target aarch64-apple-darwin --release
+      - name: Package artifact
+        run: |
+          mkdir -p release
+          cp target/aarch64-apple-darwin/release/flowlens release/
+          tar -czf flowlens-macos-arm64.tar.gz -C release .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowlens-macos-arm64
+          path: flowlens-macos-arm64.tar.gz
+          retention-days: 7
+
+  build-macos-intel:
+    name: macOS (Intel x64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-x86_64-apple-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-x86_64-apple-
+            ${{ runner.os }}-cargo-
+      - name: Build for x86_64
+        run: cargo build --target x86_64-apple-darwin --release
+      - name: Package artifact
+        run: |
+          mkdir -p release
+          cp target/x86_64-apple-darwin/release/flowlens release/
+          tar -czf flowlens-macos-intel.tar.gz -C release .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowlens-macos-intel
+          path: flowlens-macos-intel.tar.gz
+          retention-days: 7
+
+  build-linux-x64-gnu:
+    name: Linux (x64, gnu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-x86_64-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-x86_64-linux-gnu-
+            ${{ runner.os }}-cargo-
+      - name: Build for Linux x64 gnu
+        run: cargo build --target x86_64-unknown-linux-gnu --release
+      - name: Package artifact
+        run: |
+          mkdir -p release
+          cp target/x86_64-unknown-linux-gnu/release/flowlens release/
+          tar -czf flowlens-linux-x64-gnu.tar.gz -C release .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowlens-linux-x64-gnu
+          path: flowlens-linux-x64-gnu.tar.gz
+          retention-days: 7
+
+  # -------------------------------------------------------------------------
+  # Second Layer: Extended Platforms
+  # -------------------------------------------------------------------------
+  build-linux-x64-musl:
+    name: Linux (x64, musl, static)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+          components: rustfmt, clippy
+      - name: Install musl tools
+        run: sudo apt-get install -y musl-tools musl-dev
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-x86_64-musl-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-x86_64-musl-
+            ${{ runner.os }}-cargo-
+      - name: Build static binary
+        run: cargo build --target x86_64-unknown-linux-musl --release
+      - name: Verify static
+        run: file target/x86_64-unknown-linux-musl/release/flowlens
+      - name: Package artifact
+        run: |
+          mkdir -p release
+          cp target/x86_64-unknown-linux-musl/release/flowlens release/
+          tar -czf flowlens-linux-x64-musl.tar.gz -C release .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowlens-linux-x64-musl
+          path: flowlens-linux-x64-musl.tar.gz
+          retention-days: 7
+
+  build-linux-arm64:
+    name: Linux (ARM64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-arm64-cross libc6-dev-arm64-cross
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-aarch64-linux-gnu-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-aarch64-linux-gnu-
+            ${{ runner.os }}-cargo-
+      - name: Build for ARM64
+        run: cargo build --target aarch64-unknown-linux-gnu --release
+      - name: Package artifact
+        run: |
+          mkdir -p release
+          cp target/aarch64-unknown-linux-gnu/release/flowlens release/
+          tar -czf flowlens-linux-arm64.tar.gz -C release .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowlens-linux-arm64
+          path: flowlens-linux-arm64.tar.gz
+          retention-days: 7
+
+  build-windows-arm:
+    name: Windows (ARM64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-aarch64-win-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-aarch64-win-
+            ${{ runner.os }}-cargo-
+      - name: Build for ARM64
+        run: cargo build --target aarch64-pc-windows-msvc --release
+      - name: Package artifact
+        run: |
+          mkdir release
+          Copy-Item target/aarch64-pc-windows-msvc/release/*.exe release/
+          Compress-Archive -Path release/* -DestinationPath flowlens-winarm64.zip
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowlens-winarm64-msvc
+          path: flowlens-winarm64.zip
+          retention-days: 7
+
+  # -------------------------------------------------------------------------
+  # Quality checks
+  # -------------------------------------------------------------------------
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-quality-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-quality-
+            ${{ runner.os }}-cargo-
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Clippy checks
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Run tests
+        run: cargo test --workspace
