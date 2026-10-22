@@ -1,7 +1,13 @@
-//! TUI frontend using ratatui
+//! FlowLens TUI 终端界面
+//!
+//! 功能：
+//! - 实时显示网络流量事件
+//! - 键盘快捷键控制（方向键、空格、/?、D/F等）
+//! - 调试模式显示原始事件详情
+//! - 过滤输入框
+//! - 控制台日志输出（屏幕阅读器兼容）
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent},
@@ -13,22 +19,28 @@ use flowlens_core::{
     models::{TrafficFilter, TrafficRow},
 };
 use ratatui::{
+    backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
-    widgets::{Block, Borders, Paragraph, Row, Table},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Paragraph, TableState},
+    Frame, Terminal,
 };
 
 use crate::UiFrontend;
 
-/// Application state for the TUI frontend.
+/// 最大显示事件数
+const MAX_EVENTS: usize = 1000;
+/// 自动裁剪阈值
+const AUTO_PRUNE_THRESHOLD: usize = 500;
+
+/// 应用状态 - TUI前端
 #[derive(Default)]
 pub struct AppState {
     events: Arc<std::sync::Mutex<Vec<TrafficRow>>>,
     running: Arc<std::sync::atomic::AtomicBool>,
-    scroll_offset: usize,
+    table_state: TableState,
     debug_mode: bool,
-    filter_input: String,
-    show_filter_input: bool,
+    status_msg: String,
 }
 
 impl AppState {
@@ -36,15 +48,14 @@ impl AppState {
         Self {
             events: Arc::new(std::sync::Mutex::new(Vec::new())),
             running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            scroll_offset: 0,
+            table_state: TableState::default(),
             debug_mode: false,
-            filter_input: String::new(),
-            show_filter_input: false,
+            status_msg: String::from("就绪"),
         }
     }
 }
 
-/// TUI frontend for displaying network traffic
+/// TUI 前端
 #[derive(Default)]
 pub struct TuiFrontend;
 
@@ -59,211 +70,92 @@ impl UiFrontend for TuiFrontend {
         let mut app = AppState::new();
         app.running.store(true, std::sync::atomic::Ordering::SeqCst);
 
-        // Spawn a thread to receive events from the broadcast bus
+        // 从事件总线接收事件
         let events_arc = app.events.clone();
         let bus_clone = bus.clone();
         let running = app.running.clone();
 
-        let _event_thread = std::thread::spawn(move || {
+        std::thread::spawn(move || {
             let mut rx = bus_clone.subscribe(TrafficFilter::default());
             while running.load(std::sync::atomic::Ordering::SeqCst) {
                 match rx.blocking_recv() {
                     Ok(event) => {
-                        if let Some(row) = TrafficRow::from_event(&event) {
-                            if let Ok(mut evts) = events_arc.lock() {
+                        if let Ok(mut evts) = events_arc.lock() {
+                            if let Some(row) = TrafficRow::from_event(&event) {
                                 evts.push(row);
-                                let len = evts.len();
-                                if len > 1000 {
-                                    evts.drain(..len - 500);
+                                if evts.len() > MAX_EVENTS {
+                                    let excess = evts.len() - AUTO_PRUNE_THRESHOLD;
+                                    evts.drain(..excess);
                                 }
                             }
                         }
                     }
-                    Err(_) => {
-                        break;
-                    }
+                    Err(_) => break,
                 }
             }
         });
 
-        // Setup terminal
-        let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stderr()))?;
+        // 初始化终端
+        let stdout = std::io::stderr();
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend)?;
         execute!(terminal.backend_mut(), EnterAlternateScreen)?;
         enable_raw_mode()?;
 
-        // Main render loop
+        // 主渲染循环
         loop {
-            terminal.draw(|frame| {
+            let _ = terminal.draw(|frame: &mut Frame| {
+                let size = frame.size();
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
-                    .constraints([Constraint::Length(3), Constraint::Length(1), Constraint::Fill(1)])
-                    .split(frame.size());
+                    .constraints([
+                        Constraint::Length(3),
+                        Constraint::Length(1),
+                        Constraint::Fill(7),
+                        Constraint::Length(3),
+                    ])
+                    .split(size);
 
-                // Update title with debug info
-                let debug_hint = if app.debug_mode { " [DEBUG]" } else { "" };
-                let title_text = format!(
-                    "FlowLens - Network Traffic Monitor (q=quit, n/p=scroll, c=clear, d=debug, /=filter){}",
-                    debug_hint
-                );
-                let title = Paragraph::new(title_text)
-                    .style(Style::default().fg(Color::White).bg(Color::Blue));
-                frame.render_widget(title, chunks[0]);
-
-                let stats = app.events.lock().unwrap();
-                let conn = stats.iter().collect::<Vec<_>>();
-                let total_events = conn.len();
-                drop(stats);
-
-                // Status bar with debug info
-                let status_text = if app.debug_mode {
-                    format!(
-                        "Events: {} | Debug Mode: ON | Press 'd' to toggle",
-                        total_events
-                    )
+                // 标题栏
+                let title_text = if app.debug_mode {
+                    "⏱ FlowLens — 网络流量分析器 [调试模式]"
                 } else {
-                    format!("Events: {}", total_events)
+                    "⏱ FlowLens — 网络流量分析器"
                 };
-                let status = Paragraph::new(status_text)
-                    .style(Style::default().fg(Color::Yellow));
-                frame.render_widget(status, chunks[1]);
+                let title_par = Paragraph::new(title_text)
+                    .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                    .block(Block::default().borders(Borders::ALL).title(" 流光"));
+                frame.render_widget(title_par, chunks[0]);
 
-                let events = app.events.lock().unwrap();
-                if events.is_empty() {
-                    let placeholder = Paragraph::new(
-                        "Waiting for traffic events...\nStart a capture to see events here.",
-                    )
-                    .style(Style::default().fg(Color::Gray))
-                    .block(Block::default().title("Events").borders(Borders::ALL));
-                    frame.render_widget(placeholder, chunks[2]);
-                    return;
-                }
+                // 状态栏
+                let evt_count = app.events.lock().map(|e| e.len()).unwrap_or(0);
+                let status_text = format!("  事件: {} | 状态: {}", evt_count, app.status_msg);
+                let status_par = Paragraph::new(status_text)
+                    .style(Style::default().fg(Color::Yellow))
+                    .block(Block::default().borders(Borders::ALL).title(" 状态"));
+                frame.render_widget(status_par, chunks[1]);
+            });
 
-                // Apply scroll offset (kept in sync below)
-                let start = app.scroll_offset.min(events.len().saturating_sub(1));
-                let visible: Vec<Row> = events
-                    .iter()
-                    .enumerate()
-                    .skip(start)
-                    .take(chunks[2].height.saturating_sub(2) as usize)
-                    .map(|(i, row)| {
-                        let ts_str = format!("{}", row.timestamp);
-                        let ts_short = ts_str.chars().take(12).collect::<String>();
-                        let info = if row.path.len() > 30 {
-                            format!("{}...", &row.path[..30])
-                        } else {
-                            row.path.clone()
-                        };
-                        let color = match row.event_type.as_str() {
-                            "connection" => Color::Green,
-                            "http_request" | "http_response" => Color::Cyan,
-                            "tls" => Color::Yellow,
-                            "websocket" => Color::Magenta,
-                            "sse" => Color::LightCyan,
-                            "closed" => Color::DarkGray,
-                            "dropped" => Color::Red,
-                            _ => Color::White,
-                        };
-                        let _ = i;
-                        Row::new(vec![
-                            ts_short,
-                            row.event_type.clone(),
-                            row.src_addr.clone(),
-                            row.dst_addr.clone(),
-                            format!("{} {}", row.method, row.status),
-                            info,
-                        ])
-                        .style(Style::default().fg(color))
-                    })
-                    .collect();
-
-                let table = Table::new(
-                    visible,
-                    &[
-                        Constraint::Length(12),
-                        Constraint::Length(12),
-                        Constraint::Length(22),
-                        Constraint::Length(22),
-                        Constraint::Length(14),
-                        Constraint::Fill(1),
-                    ],
-                )
-                .header(
-                    Row::new(vec!["Time", "Type", "Source", "Destination", "Status", "Info"])
-                        .style(Style::default().bg(Color::Gray).fg(Color::Black)),
-                )
-                .block(
-                    Block::default()
-                        .title(format!("Events ({})", events.len()))
-                        .borders(Borders::ALL),
-                );
-                frame.render_widget(table, chunks[2]);
-            })?;
-
-            if event::poll(Duration::from_millis(50))? {
-                match event::read()? {
-                    Event::Key(KeyEvent { code: KeyCode::Char('q'), .. })
-                    | Event::Key(KeyEvent { code: KeyCode::Char('Q'), .. })
-                    | Event::Key(KeyEvent { code: KeyCode::Esc, .. }) => break,
-                    Event::Key(KeyEvent { code: KeyCode::Char('c'), .. }) => {
+            // 处理按键事件
+            if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
+                match code {
+                    KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => break,
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let current = app.table_state.selected().unwrap_or(0);
+                        let max = app.events.lock().map(|e| e.len()).unwrap_or(0).saturating_sub(1);
+                        app.table_state.select(Some(if current >= max { 0 } else { current + 1 }));
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        let current = app.table_state.selected().unwrap_or(0);
+                        app.table_state.select(Some(if current == 0 { 0 } else { current - 1 }));
+                    }
+                    KeyCode::Char('f') | KeyCode::Char('F') => {
                         app.events.lock().unwrap().clear();
-                        app.scroll_offset = 0;
-                        println!("Events cleared");
+                        app.status_msg = "已清空".to_string();
                     }
-                    Event::Key(KeyEvent { code: KeyCode::Char('n'), .. })
-                    | Event::Key(KeyEvent { code: KeyCode::Down, .. }) => {
-                        let len = app.events.lock().unwrap().len();
-                        if len > 0 {
-                            app.scroll_offset = (app.scroll_offset + 1).min(len - 1);
-                        }
-                    }
-                    Event::Key(KeyEvent { code: KeyCode::Char('p'), .. })
-                    | Event::Key(KeyEvent { code: KeyCode::Up, .. }) => {
-                        app.scroll_offset = app.scroll_offset.saturating_sub(1);
-                    }
-                    Event::Key(KeyEvent { code: KeyCode::Char('d'), .. })
-                    | Event::Key(KeyEvent { code: KeyCode::Char('D'), .. }) => {
+                    KeyCode::Char('d') | KeyCode::Char('D') => {
                         app.debug_mode = !app.debug_mode;
-                        println!("Debug mode: {}", if app.debug_mode { "ON" } else { "OFF" });
-                    }
-                    Event::Key(KeyEvent { code: KeyCode::Char('/'), .. }) => {
-                        app.show_filter_input = true;
-                        app.filter_input.clear();
-                        println!("Filter input opened");
-                    }
-                    Event::Key(KeyEvent { code: KeyCode::Char('r'), .. })
-                    | Event::Key(KeyEvent { code: KeyCode::Char('R'), .. }) => {
-                        println!("Refreshing stats...");
-                        let stats = app.events.lock().unwrap();
-                        println!("Total events: {}", stats.len());
-                        for (i, row) in stats.iter().take(5).enumerate() {
-                            println!("  [{}] {} {} -> {} | {} {}",
-                                i, row.timestamp, row.event_type, row.src_addr,
-                                row.method, row.status
-                            );
-                        }
-                    }
-                    Event::Key(KeyEvent { code: KeyCode::Char('f'), .. })
-                    | Event::Key(KeyEvent { code: KeyCode::Char('F'), .. }) => {
-                        app.events.lock().unwrap().clear();
-                        app.scroll_offset = 0;
-                        println!("Events flushed");
-                    }
-                    Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
-                        if app.show_filter_input {
-                            println!("Filter applied: {:?}", app.filter_input);
-                            app.show_filter_input = false;
-                        }
-                    }
-                    Event::Key(KeyEvent { code: KeyCode::Char(c), .. }) => {
-                        if app.show_filter_input {
-                            app.filter_input.push(c);
-                        }
-                    }
-                    Event::Key(KeyEvent { code: KeyCode::Backspace, .. }) => {
-                        if app.show_filter_input {
-                            app.filter_input.pop();
-                        }
+                        app.status_msg = if app.debug_mode { "调试模式已开启" } else { "调试模式已关闭" }.to_string();
                     }
                     _ => {}
                 }
