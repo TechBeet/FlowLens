@@ -199,16 +199,52 @@ pub struct TrafficSession {
 /// Network traffic event
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TrafficEvent {
-    ConnectionEstablished { conn: ConnectionKey, process: ProcessInfo },
-    PacketReceived { data: Vec<u8>, interface: String, direction: String, timestamp: i64 },
-    TlsHandshake { conn: ConnectionKey, session: TlsSession },
-    HttpRequest { session_id: SessionId, conn: ConnectionKey, request: HttpRequest },
-    HttpResponse { session_id: SessionId, conn: ConnectionKey, response: HttpResponse },
-    WebSocketFrame { session_id: SessionId, conn: ConnectionKey, frame: WebSocketFrame },
-    SseEvent { session_id: SessionId, conn: ConnectionKey, event: SseEvent },
-    GrpcCall { session_id: SessionId, conn: ConnectionKey, call: GrpcCall },
-    ConnectionClosed { conn: ConnectionKey },
-    CaptureDropped { reason: String, count: u64 },
+    ConnectionEstablished {
+        conn: ConnectionKey,
+        process: ProcessInfo,
+    },
+    PacketReceived {
+        data: Vec<u8>,
+        interface: String,
+        direction: String,
+        timestamp: i64,
+    },
+    TlsHandshake {
+        conn: ConnectionKey,
+        session: TlsSession,
+    },
+    HttpRequest {
+        session_id: SessionId,
+        conn: ConnectionKey,
+        request: HttpRequest,
+    },
+    HttpResponse {
+        session_id: SessionId,
+        conn: ConnectionKey,
+        response: HttpResponse,
+    },
+    WebSocketFrame {
+        session_id: SessionId,
+        conn: ConnectionKey,
+        frame: WebSocketFrame,
+    },
+    SseEvent {
+        session_id: SessionId,
+        conn: ConnectionKey,
+        event: SseEvent,
+    },
+    GrpcCall {
+        session_id: SessionId,
+        conn: ConnectionKey,
+        call: GrpcCall,
+    },
+    ConnectionClosed {
+        conn: ConnectionKey,
+    },
+    CaptureDropped {
+        reason: String,
+        count: u64,
+    },
 }
 
 /// Traffic filter for event subscription
@@ -293,9 +329,9 @@ impl TrafficFilter {
             let conn_host = conn.dst_addr.to_string();
             if !hosts.iter().any(|h| {
                 // Allow exact match or subdomain match
-                *h == conn_host || 
-                h.starts_with(&format!(".{}", conn_host)) ||
-                conn_host.ends_with(&format!(".{}", h))
+                *h == conn_host
+                    || h.starts_with(&format!(".{}", conn_host))
+                    || conn_host.ends_with(&format!(".{}", h))
             }) {
                 return false;
             }
@@ -495,7 +531,12 @@ impl TrafficRow {
                 String::new(),
                 0,
             ),
-            TrafficEvent::PacketReceived { data, interface, timestamp, .. } => {
+            TrafficEvent::PacketReceived {
+                data,
+                interface,
+                timestamp,
+                ..
+            } => {
                 let _ = timestamp;
                 (
                     "packet".to_string(),
@@ -577,4 +618,3 @@ mod tests {
         assert!(!filter.match_connection(&conn));
     }
 }
-
