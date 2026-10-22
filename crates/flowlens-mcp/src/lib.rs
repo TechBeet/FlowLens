@@ -34,8 +34,12 @@ impl QuerySessionsTool {
 
 #[async_trait]
 impl McpTool for QuerySessionsTool {
-    fn name(&self) -> &'static str { "query_sessions" }
-    fn description(&self) -> &'static str { "Query captured traffic sessions with filters" }
+    fn name(&self) -> &'static str {
+        "query_sessions"
+    }
+    fn description(&self) -> &'static str {
+        "Query captured traffic sessions with filters"
+    }
 
     async fn invoke(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(50);
@@ -61,8 +65,12 @@ impl GetSessionTool {
 
 #[async_trait]
 impl McpTool for GetSessionTool {
-    fn name(&self) -> &'static str { "get_session" }
-    fn description(&self) -> &'static str { "Get a specific traffic session by ID" }
+    fn name(&self) -> &'static str {
+        "get_session"
+    }
+    fn description(&self) -> &'static str {
+        "Get a specific traffic session by ID"
+    }
 
     async fn invoke(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         let id: u64 = args.get("session_id").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -81,7 +89,10 @@ pub struct McpServerImpl {
 
 impl McpServerImpl {
     pub fn new() -> Self {
-        Self { tools: Vec::new(), addr: None }
+        Self {
+            tools: Vec::new(),
+            addr: None,
+        }
     }
 
     pub fn register_tool(&mut self, tool: Box<dyn McpTool>) {
@@ -90,7 +101,9 @@ impl McpServerImpl {
 }
 
 impl Default for McpServerImpl {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl McpServer for McpServerImpl {
