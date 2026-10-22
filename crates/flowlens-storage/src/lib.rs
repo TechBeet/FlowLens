@@ -14,8 +14,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use flowlens_core::models::{SessionId, TrafficSession};
-use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 
 /// Storage engine trait — all storage backends implement this.
 pub trait StorageEngine: Send + Sync {
@@ -62,7 +62,9 @@ impl InMemoryStorage {
 }
 
 impl Default for InMemoryStorage {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// SQLite storage engine for persistent session storage.
@@ -78,7 +80,9 @@ impl SqliteStorage {
             .max_connections(5)
             .connect(&db_url)
             .await?;
-        let storage = Self { pool: Arc::new(pool) };
+        let storage = Self {
+            pool: Arc::new(pool),
+        };
         storage.create_tables()?;
         Ok(storage)
     }
@@ -171,15 +175,21 @@ impl StorageEngine for InMemoryStorage {
             .values()
             .filter(|s| {
                 if let Some(pid) = query.pid {
-                    if s.process.pid != pid { return false; }
+                    if s.process.pid != pid {
+                        return false;
+                    }
                 }
                 if let Some(host) = &query.host {
                     let dst = s.conn.dst_addr.to_string();
-                    if !dst.contains(host) { return false; }
+                    if !dst.contains(host) {
+                        return false;
+                    }
                 }
                 if let Some(proto) = &query.protocol {
                     let pk = format!("{:?}", s.protocol).to_lowercase();
-                    if pk != proto.to_lowercase() { return false; }
+                    if pk != proto.to_lowercase() {
+                        return false;
+                    }
                 }
                 true
             })
@@ -229,7 +239,9 @@ impl StorageEngine for SqliteStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flowlens_core::models::{ConnectionKey, ProcessInfo, ProcessArch, MatchQuality, TransportProtocol};
+    use flowlens_core::models::{
+        ConnectionKey, MatchQuality, ProcessArch, ProcessInfo, TransportProtocol,
+    };
 
     #[test]
     fn test_insert_and_get() {
@@ -246,8 +258,11 @@ mod tests {
                 interface_guid: None,
             },
             process: ProcessInfo {
-                pid: 1234, name: "test.exe".to_string(), exe_path: None,
-                user_sid: String::new(), arch: ProcessArch::X64,
+                pid: 1234,
+                name: "test.exe".to_string(),
+                exe_path: None,
+                user_sid: String::new(),
+                arch: ProcessArch::X64,
                 match_quality: MatchQuality::Heuristic,
             },
             tls: None,
