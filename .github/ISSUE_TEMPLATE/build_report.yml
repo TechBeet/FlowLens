@@ -1,0 +1,57 @@
+name: 🧪 Build/Install Issue
+description: Problems building from source or installing FlowLens
+labels: [build, triage]
+body:
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight Checks
+      options:
+        - label: This is a build/install issue, not a runtime bug
+          required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows 10/11
+        - macOS
+        - Linux
+        - Cross-compilation
+    validations:
+      required: true
+
+  - type: input
+    id: rust-version
+    attributes:
+      label: Rust Version
+      placeholder: "rustc 1.74.0 (79e9716c9 2023-12-13)"
+    validations:
+      required: true
+
+  - type: input
+    id: cargo-version
+    attributes:
+      label: Cargo Version
+      placeholder: "cargo 1.74.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error Output
+      description: Full error messages from cargo build/test
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      description: Steps taken to reproduce the build failure
+      render: markdown
+    validations:
+      required: true

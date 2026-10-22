@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/your-org/FlowLens/discussions
+    about: Ask questions, share ideas, and discuss FlowLens
+  - name: 📚 Documentation
+    url: https://github.com/your-org/FlowLens/tree/main/docs
+    about: Read the documentation before reporting issues
+  - name: 🔒 Security Issues
+    url: https://github.com/your-org/FlowLens/security/advisories/new
+    about: Report security vulnerabilities privately
