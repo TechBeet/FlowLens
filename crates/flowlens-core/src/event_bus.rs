@@ -90,7 +90,8 @@ impl EventBus for BroadcastEventBus {
         // or Err(SendError) only when ALL receivers have dropped.
         // We accept that events may not be received if no subscribers yet exist.
         let _ = self.sender.send(event);
-        self.evt_cnt.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.evt_cnt
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if let Some(row) = row {
             if let Ok(mut r) = self.recent.lock() {
                 r.push(row);
@@ -112,6 +113,18 @@ impl EventBus for BroadcastEventBus {
 
     fn subscriber_count(&self) -> usize {
         self.sender.receiver_count()
+    }
+}
+
+impl BroadcastEventBus {
+    /// Convenience accessor: total number of events published.
+    pub fn event_count(&self) -> u64 {
+        self.get_event_count()
+    }
+
+    /// Convenience accessor: latest events snapshot for reporting.
+    pub fn latest_events(&self, limit: usize) -> Vec<TrafficRow> {
+        self.get_latest_events(limit)
     }
 }
 
@@ -165,7 +178,10 @@ mod tests {
 
         bus.publish(event.clone()).unwrap();
         let received = rx.blocking_recv().unwrap();
-        assert!(matches!(received, TrafficEvent::ConnectionEstablished { .. }));
+        assert!(matches!(
+            received,
+            TrafficEvent::ConnectionEstablished { .. }
+        ));
     }
 
     #[test]
