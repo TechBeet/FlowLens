@@ -80,25 +80,13 @@ pub enum WfpDriverError {
 }
 
 /// Driver metrics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DriverMetrics {
     pub packets_received: u64,
     pub packets_processed: u64,
     pub errors: u64,
     pub start_time: i64,
     pub duration_ms: u64,
-}
-
-impl Default for DriverMetrics {
-    fn default() -> Self {
-        Self {
-            packets_received: 0,
-            packets_processed: 0,
-            errors: 0,
-            start_time: 0,
-            duration_ms: 0,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -117,10 +105,10 @@ mod tests {
     fn test_driver_start_stop() {
         let mut driver = WfpDriver::new();
         assert!(!driver.is_running());
-        
+
         driver.start().unwrap();
         assert!(driver.is_running());
-        
+
         driver.stop().unwrap();
         assert!(!driver.is_running());
     }
