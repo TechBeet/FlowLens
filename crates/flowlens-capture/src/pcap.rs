@@ -154,46 +154,46 @@ impl PcapEngine {
             return Ok(());
         }
         let device = self.device_name.clone();
-        let cap = pcap::Capture::from_device(device.as_str())
-            .ok()
-            .and_then(|d| {
-                let mut cap = d.promisc(true).snaplen(65535).timeout(100).open().ok()?;
-                if let Some(f) = self.bpf_filter.clone() {
-                    cap.filter(&f, true).ok()?;
-                }
-                Some(cap)
-            });
+        let mut cap = pcap::Capture::from_device(device.as_str())
+            .map_err(|e| anyhow::anyhow!("Failed to find device {}: {}", device, e))?
+            .promisc(true)
+            .snaplen(65535)
+            .timeout(100)
+            .open()
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        if let Some(f) = self.bpf_filter.clone() {
+            cap.filter(&f, true)
+                .map_err(|e| anyhow::anyhow!(e))?;
+        }
 
         self.running
             .store(true, std::sync::atomic::Ordering::SeqCst);
         tracing::info!(device = %device, "Npcap capture started");
 
-        if let Some(mut cap) = cap {
-            let queue = self.queue.clone();
-            let running = self.running.clone();
-            std::thread::spawn(move || {
-                while running.load(std::sync::atomic::Ordering::SeqCst) {
-                    match cap.next_packet() {
-                        Ok(pkt) => {
-                            if let Some(rp) = parse_ethernet(pkt.data) {
-                                if let Ok(mut q) = queue.lock() {
-                                    q.push_back(rp);
-                                    if q.len() > 4096 {
-                                        q.pop_front();
-                                    }
+        let queue = self.queue.clone();
+        let running = self.running.clone();
+        std::thread::spawn(move || {
+            while running.load(std::sync::atomic::Ordering::SeqCst) {
+                match cap.next_packet() {
+                    Ok(pkt) => {
+                        if let Some(rp) = parse_ethernet(pkt.data) {
+                            if let Ok(mut q) = queue.lock() {
+                                q.push_back(rp);
+                                if q.len() > 4096 {
+                                    q.pop_front();
                                 }
                             }
                         }
-                        Err(_) => {
-                            std::thread::sleep(std::time::Duration::from_millis(50));
-                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(err = ?e, "Npcap error");
+                        std::thread::sleep(std::time::Duration::from_millis(50));
                     }
                 }
-                tracing::info!("Npcap reader thread exiting");
-            });
-        } else {
-            tracing::warn!("Failed to open pcap device {} (no Npcap?)", device);
-        }
+            }
+            tracing::info!("Npcap reader thread exiting");
+        });
         Ok(())
     }
 
