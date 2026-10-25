@@ -18,12 +18,12 @@ pub enum Commands {
         /// Name of the capture session
         #[arg(short, long, default_value = "FlowLens")]
         name: String,
-        /// Force admin mode
-        #[arg(short, long)]
-        admin_force: bool,
         /// Use GUI mode instead of TUI
         #[arg(short, long)]
         gui: bool,
+        /// Force mock mode (skip admin check, useful for testing GUI without Npcap/admin)
+        #[arg(long)]
+        mock: bool,
         /// Print status report and exit
         #[arg(long, default_value = "false")]
         status: bool,
@@ -69,17 +69,52 @@ pub enum Commands {
     Version,
 }
 
-/// Check if running as administrator
+/// Check if running as administrator using Windows TokenElevation API
 pub fn is_admin() -> bool {
-    // Simplified check - in production would use proper security token inspection
     #[cfg(windows)]
     {
-        // Placeholder - will be implemented with proper SID checking
-        true
+        use windows_sys::Win32::Foundation::HANDLE;
+        use windows_sys::Win32::Security::TOKEN_ELEVATION;
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+        unsafe {
+            let mut token_handle: HANDLE = std::mem::zeroed();
+            if OpenProcessToken(
+                GetCurrentProcess(),
+                0x0008, // TOKEN_QUERY
+                &mut token_handle,
+            ) == 0
+            {
+                return false;
+            }
+
+            let mut elevation: TOKEN_ELEVATION = std::mem::zeroed();
+            let mut return_len: u32 = 0;
+
+            let success = windows_sys::Win32::Security::GetTokenInformation(
+                token_handle,
+                20, // TokenElevation
+                &mut elevation as *mut _ as *mut _,
+                std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+                &mut return_len,
+            );
+
+            // Close the token handle
+            windows_sys::Win32::Foundation::CloseHandle(token_handle);
+
+            success != 0 && elevation.TokenIsElevated != 0
+        }
     }
     #[cfg(not(windows))]
     {
-        false
+        // On non-Windows, check uid == 0 (root)
+        cfg_if::cfg_if! {
+            if #[cfg(unix)] {
+                unsafe { libc::getuid() == 0 }
+            } else {
+                false
+            }
+        }
     }
 }
 
@@ -93,7 +128,6 @@ pub fn ensure_admin() -> anyhow::Result<()> {
     }
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +136,14 @@ mod tests {
     fn test_cli_parse_help() {
         let cli = Cli::try_parse_from(["flowlens", "--help"]);
         assert!(cli.is_err()); // --help causes exit
+    }
+
+    #[test]
+    fn test_is_admin_detection() {
+        let is_admin = is_admin();
+        println!("Running as admin: {}", is_admin);
+        // Just verify it returns a boolean, don't assert specific value
+        // since it depends on how the test is run
+        let _ = is_admin;
     }
 }
