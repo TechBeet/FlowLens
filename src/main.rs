@@ -35,8 +35,8 @@ fn main() -> anyhow::Result<()> {
             match cli.command {
                 flowlens_cli::Commands::Start {
                     name,
-                    admin_force,
                     gui,
+                    mock,
                     status,
                     events,
                     filters,
@@ -108,7 +108,8 @@ fn main() -> anyhow::Result<()> {
                         name,
                         gui
                     );
-                    if admin_force {
+                    // Skip admin check when --mock flag is set (useful for testing)
+                    if !mock {
                         flowlens_cli::ensure_admin()?;
                     }
 
@@ -116,29 +117,28 @@ fn main() -> anyhow::Result<()> {
                     let bus = Arc::new(flowlens_core::event_bus::BroadcastEventBus::default());
 
                     // Initialize real capture, auto-detecting Npcap. Falls back to mock
-                    // producer if Npcap is not installed or the device cannot be opened.
-                    let mut engine = flowlens_capture::Engine::auto();
-                    let using_real = matches!(engine, flowlens_capture::Engine::Pcap(_));
+                    // producer if Npcap is not installed, device cannot be opened, or --mock flag is set.
+                    if mock {
+                        // Force mock mode when --mock flag is set (useful for testing without admin)
+                        tracing::warn!("--mock flag set: forcing MOCK mode. Install Npcap and run as Administrator for real capture.");
+                        flowlens_capture::spawn_mock_producer(bus.clone());
+                    } else {
+                        let mut engine = flowlens_capture::Engine::auto();
+                        let using_real = matches!(engine, flowlens_capture::Engine::Pcap(_));
 
-                    match engine.start() {
-                        Ok(()) if using_real => {
-                            tracing::info!("Real Npcap capture active");
-                            // Continuously pump captured packets into the EventBus in the background.
-                            flowlens_capture::spawn_engine_pump(engine, bus.clone());
-                        }
-                        Ok(()) => {
-                            tracing::warn!(
-                                "Npcap unavailable; running in MOCK mode. \
-                                 Install Npcap from https://nmap.org/npcap/ and run as Administrator \
-                                 for real capture."
-                            );
-                            flowlens_capture::spawn_mock_producer(bus.clone());
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to start real capture ({e}); running in MOCK mode."
-                            );
-                            flowlens_capture::spawn_mock_producer(bus.clone());
+                        match engine.start() {
+                            Ok(()) if using_real => {
+                                tracing::info!("Real Npcap capture active");
+                                flowlens_capture::spawn_engine_pump(engine, bus.clone());
+                            }
+                            Ok(()) => {
+                                tracing::warn!("Npcap unavailable; running in MOCK mode. Install Npcap from https://nmap.org/npcap/ and run as Administrator for real capture.");
+                                flowlens_capture::spawn_mock_producer(bus.clone());
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to start real capture ({e}); running in MOCK mode.");
+                                flowlens_capture::spawn_mock_producer(bus.clone());
+                            }
                         }
                     }
 
