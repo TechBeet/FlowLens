@@ -1,286 +1,666 @@
-//! FlowLens GUI 图形界面 - 网络流量分析器
+//! FlowLens GUI 图形界面 —— 网络流量分析器
+//!
+//! 全中文界面，暗色/亮色主题，实时事件表格，支持过滤与行选中。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+
 use eframe::App;
-use egui::{Color32, Layout, FontData, FontDefinitions, FontFamily, Align};
-use flowlens_core::{event_bus::EventBus, models::{TrafficFilter, TrafficRow}};
+use egui::{Color32, RichText, ScrollArea};
+use flowlens_core::{
+    event_bus::EventBus,
+    models::{TrafficFilter, TrafficRow},
+};
 
-const BASE_FONT_SIZE: f32 = 24.0;
-const HEADING_FONT_SIZE: f32 = 30.0;
-const STATUS_FONT_SIZE: f32 = 20.0;
-const CELL_FONT_SIZE: f32 = 22.0;
-const MAX_EVENTS: usize = 5000;
-const AUTO_PRUNE_THRESHOLD: usize = 500;
+use crate::UiFrontend;
 
-#[allow(dead_code)]
-fn log_ui(msg: &str) { eprintln!("[UI] {}", msg); }
-
-fn setup_chinese_fonts(ctx: &egui::Context) {
-    let mut fonts = FontDefinitions::default();
-    let candidates: Vec<&str> = if cfg!(target_os = "windows") {
-        vec![r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\msyhbd.ttc", r"C:\Windows\Fonts\Deng.ttf", r"C:\Windows\Fonts\simsun.ttc", r"C:\Windows\Fonts\simhei.ttf"]
-    } else if cfg!(target_os = "macos") {
-        vec!["/System/Library/Fonts/Supplemental/SF Pro Text.otf", "/System/Library/Fonts/STHeiti Light.ttc", "/System/Library/Fonts/PingFang.ttc"]
-    } else {
-        vec!["/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.otf", "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"]
-    };
+/// 查找系统中文字体路径
+fn find_cjk_font() -> Option<std::path::PathBuf> {
+    // 优先使用 Noto Sans SC（开源高质量中文字体）
+    let candidates = [
+        "C:\\Windows\\Fonts\\NotoSansSC-VF.ttf",   // Noto Sans SC 可变字体
+        "C:\\Windows\\Fonts\\msyh.ttc",           // 微软雅黑
+        "C:\\Windows\\Fonts\\simsun.ttc",         // 宋体
+        "C:\\Windows\\Fonts\\simhei.ttf",         // 黑体
+        "C:\\Windows\\Fonts\\NotoSerifSC-VF.ttf", // Noto Serif SC
+    ];
+    
     for path in &candidates {
-        if let Ok(bytes) = std::fs::read(path) {
-            let mut fd = FontData::from_owned(bytes);
-            fd.index = 0;
-            let base = path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or("font");
-            let name = base.trim_end_matches('.').trim_end_matches("ttc").trim_end_matches("ttf").trim_end_matches("otf");
-            let name = if name.is_empty() { "chinese" } else { name };
-            let name: String = name.to_string();
-            let mut prop = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
-            prop.retain(|n| n != &name); prop.insert(0, name.clone());
-            let mut mono = fonts.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
-            mono.retain(|n| n != &name); mono.insert(0, name.clone());
-            fonts.font_data.insert(name.clone(), Arc::new(fd));
-            fonts.families.insert(FontFamily::Proportional, prop);
-            fonts.families.insert(FontFamily::Monospace, mono);
-            log_ui(&format!("Loaded Chinese font: {} ({}px)", path, BASE_FONT_SIZE as u32));
-            break;
+        let p = std::path::Path::new(path);
+        if p.exists() {
+            return Some(p.to_path_buf());
         }
     }
-    ctx.set_fonts(fonts);
-    ctx.set_pixels_per_point(1.25);
+    None
 }
 
-// ─── Helper functions ───
-fn event_type_cn(e: &str) -> String {
-    match e { "connection" => "连接".to_string(), "http_request" => "HTTP 请求".to_string(),
-        "http_response" => "HTTP 响应".to_string(), "tls" => "TLS".to_string(),
-        "websocket" => "WebSocket".to_string(), "sse" => "SSE".to_string(), _ => e.to_string() }
+/// 初始化 egui 中文字体支持
+fn init_cjk_fonts(ctx: &egui::Context) {
+    let mut font_def = egui::FontDefinitions::default();
+    
+    if let Some(font_path) = find_cjk_font() {
+        // 读取字体文件
+        let font_data = match std::fs::read(&font_path) {
+            Ok(bytes) => egui::FontData::from_owned(bytes),
+            Err(e) => {
+                tracing::warn!("读取中文字体失败 {}: {}", font_path.display(), e);
+                return;
+            }
+        };
+        
+        // 获取字体文件名用于调试
+        let font_name = font_path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("CJK");
+        
+        tracing::info!("加载中文字体: {}", font_path.display());
+        
+        // 将 CJK 字体插入到字体集合中
+        // 使用自定义名称 "CJK"
+        font_def.font_data.insert(
+            "CJK".to_string(),
+            Arc::new(font_data)
+        );
+        
+        // 将 CJK 字体设置为默认字体（替换 Monospace 和 Proportional）
+        // egui 0.30 的 FontDefinitions 结构：
+        // - fonts: HashMap<String, FontData> 存储字体数据
+        // - families: HashMap<FontFamily, Vec<String>> 定义字体族使用的字体列表
+        
+        // 替换 Monospace 字体的默认字体
+        if let Some(monospace_fonts) = font_def.families.get_mut(&egui::FontFamily::Monospace) {
+            // 将 CJK 字体插入到列表最前面（优先级最高）
+            monospace_fonts.insert(0, "CJK".to_string());
+        }
+        
+        // 替换 Proportional 字体的默认字体  
+        if let Some(proportional_fonts) = font_def.families.get_mut(&egui::FontFamily::Proportional) {
+            // 将 CJK 字体插入到列表最前面（优先级最高）
+            proportional_fonts.insert(0, "CJK".to_string());
+        }
+        
+        ctx.set_fonts(font_def);
+        tracing::info!("中文字体初始化成功: {}", font_name);
+    } else {
+        tracing::warn!("未找到系统中文字体，中文可能无法正确显示");
+    }
 }
-fn event_color(e: &str, dark: bool) -> Color32 {
-    let c = |r,g,b| Color32::from_rgb(r,g,b);
-    match e { "connection" => c(70,220,120), "http_request" => c(80,160,255),
-        "http_response" => c(80,230,130), "tls" => c(255,170,60),
-        "websocket" => c(180,90,255), "sse" => c(0,230,220),
-        _ => if dark { c(170,170,200) } else { c(90,90,120) } }
+
+/// 最多保留的事件条数
+const MAX_EVENTS: usize = 5000;
+/// 超出上限后裁剪到的目标条数
+const AUTO_PRUNE_THRESHOLD: usize = 4000;
+
+/// 事件类型英文标识 -> 中文名称
+fn event_type_cn(kind: &str) -> &'static str {
+    match kind {
+        "connection" => "连接",
+        "http_request" => "HTTP 请求",
+        "http_response" => "HTTP 响应",
+        "tls" => "TLS",
+        "websocket" => "WebSocket",
+        "sse" => "SSE",
+        "dns" => "DNS",
+        _ => "其他",
+    }
 }
+
+/// 事件类型对应的强调色
+fn event_color(kind: &str, dark: bool) -> Color32 {
+    match kind {
+        "connection" => Color32::from_rgb(76, 217, 123),
+        "http_request" => Color32::from_rgb(88, 166, 255),
+        "http_response" => Color32::from_rgb(86, 224, 141),
+        "tls" => Color32::from_rgb(247, 178, 63),
+        "websocket" => Color32::from_rgb(178, 120, 255),
+        "sse" => Color32::from_rgb(45, 226, 216),
+        "dns" => Color32::from_rgb(240, 130, 210),
+        _ => {
+            if dark {
+                Color32::from_rgb(170, 176, 186)
+            } else {
+                Color32::from_rgb(96, 104, 116)
+            }
+        }
+    }
+}
+
+/// 毫秒时间戳 -> HH:MM:SS.d
 fn format_ts(ts: i64) -> String {
-    if ts <= 0 { return "00:00:00".to_string(); }
-    let s = ts / 1000; let ms = (ts % 1000) / 100;
-    format!("{:02}:{:02}:{:02}.{}", (s/3600)%24, (s/60)%60, s%60, ms)
-}
-fn fmt_bytes(size: usize) -> String {
-    if size >= 1024*1024 { format!("{:.2} MB", size as f64/(1024.0*1024.0)) }
-    else if size >= 1024 { format!("{:.2} KB", size as f64/1024.0) }
-    else { format!("{} B", size) }
-}
-fn trunc(s: &str, max: usize) -> String {
-    if s.len() <= max { s.to_string() } else { format!("{}…", &s[..max]) }
+    if ts <= 0 {
+        return "--:--:--.-".to_string();
+    }
+    let total_secs = ts / 1000;
+    let tenths = (ts % 1000) / 100;
+    let h = (total_secs / 3600) % 24;
+    let m = (total_secs / 60) % 60;
+    let s = total_secs % 60;
+    format!("{h:02}:{m:02}:{s:02}.{tenths}")
 }
 
-// ─── GUI Frontend struct ───
+/// 字节数 -> 人类可读
+fn fmt_bytes(size: usize) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    let n = size as f64;
+    if n >= MB {
+        format!("{:.2} MB", n / MB)
+    } else if n >= KB {
+        format!("{:.2} KB", n / KB)
+    } else {
+        format!("{size} B")
+    }
+}
+
+/// 按字符数截断，超出部分用省略号代替
+fn trunc(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        let head: String = text.chars().take(max_chars.saturating_sub(1)).collect();
+        format!("{head}…")
+    }
+}
+
+/// 状态码着色
+fn status_color(status: u16, dark: bool) -> Color32 {
+    match status {
+        0 => {
+            if dark {
+                Color32::from_rgb(150, 156, 166)
+            } else {
+                Color32::from_rgb(120, 126, 136)
+            }
+        }
+        100..=199 => Color32::from_rgb(45, 212, 191),
+        200..=299 => Color32::from_rgb(76, 201, 120),
+        300..=399 => Color32::from_rgb(238, 205, 90),
+        400..=499 => Color32::from_rgb(240, 150, 70),
+        _ => Color32::from_rgb(235, 90, 90),
+    }
+}
+
+// __PART2__
+
+/// GUI 前端状态。被 eframe 单线程调用，不对外共享。
 pub struct GuiFrontend {
     events: Arc<Mutex<Vec<TrafficRow>>>,
-    running: Arc<std::sync::atomic::AtomicBool>,
-    debug_mode: bool,
+    running: Arc<AtomicBool>,
     dark_mode: bool,
     filter_input: String,
-    show_filter_input: bool,
-    status_msg: String,
     selected_row: Option<usize>,
     bus: Option<Arc<dyn EventBus>>,
 }
+
 impl Default for GuiFrontend {
     fn default() -> Self {
-        Self { events: Arc::new(Mutex::new(Vec::new())), running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            debug_mode: false, dark_mode: true, filter_input: String::new(), show_filter_input: false,
-            status_msg: "就绪".to_string(), selected_row: None, bus: None }
-    }
-}
-impl GuiFrontend {
-    pub fn new() -> Self { Self::default() }
-    pub fn with_bus(mut self, bus: Arc<dyn EventBus>) -> Self { self.bus = Some(bus); self }
-    fn start_capture(&mut self) {
-        if let Some(bus) = &self.bus {
-            self.start_capture_inner(bus.clone());
+        Self {
+            events: Arc::new(Mutex::new(Vec::new())),
+            running: Arc::new(AtomicBool::new(false)),
+            dark_mode: true,
+            filter_input: String::new(),
+            selected_row: None,
+            bus: None,
         }
     }
-    fn start_capture_inner(&self, bus: Arc<dyn EventBus>) {
-        if self.running.load(std::sync::atomic::Ordering::SeqCst) { return; }
-        self.running.store(true, std::sync::atomic::Ordering::SeqCst);
-        let events_arc = self.events.clone();
+}
+
+impl GuiFrontend {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_bus(mut self, bus: Arc<dyn EventBus>) -> Self {
+        self.bus = Some(bus);
+        self
+    }
+
+    /// 在第一次调用时启动后台线程监听事件总线，
+    /// 持续将新事件追加到 `events` 缓存中。
+    fn start_capture(&mut self) {
+        if self.bus.is_none() {
+            return;
+        }
+        if self.running.load(Ordering::SeqCst) {
+            return;
+        }
+        self.running.store(true, Ordering::SeqCst);
+        let events = self.events.clone();
         let running = self.running.clone();
+        let bus = self.bus.clone();
         std::thread::spawn(move || {
+            let bus = match bus {
+                Some(b) => b,
+                None => return,
+            };
             let mut rx = bus.subscribe(TrafficFilter::default());
-            while running.load(std::sync::atomic::Ordering::SeqCst) {
+            while running.load(Ordering::SeqCst) {
                 match rx.blocking_recv() {
                     Ok(event) => {
-                        if let Ok(mut evts) = events_arc.lock() {
+                        if let Ok(mut evts) = events.lock() {
                             if let Some(row) = TrafficRow::from_event(&event) {
                                 evts.push(row);
-                                let len = evts.len();
-                                if len > MAX_EVENTS {
-                                    evts.drain(..len - AUTO_PRUNE_THRESHOLD);
+                                if evts.len() > MAX_EVENTS {
+                                    let excess = evts.len() - AUTO_PRUNE_THRESHOLD;
+                                    evts.drain(..excess);
                                 }
                             }
                         }
-                    } Err(_) => break,
+                    }
+                    Err(_) => break,
                 }
             }
         });
     }
-    fn clear_events(&mut self) { self.events.lock().unwrap().clear(); self.selected_row = None; self.status_msg = "已清空".to_string(); log_ui("事件已清空"); }
-    fn toggle_debug(&mut self) { self.debug_mode = !self.debug_mode; self.status_msg = if self.debug_mode { "调试模式已开启" } else { "调试模式已关闭" }.to_string(); }
+
+    fn clear_events(&mut self) {
+        if let Ok(mut evts) = self.events.lock() {
+            evts.clear();
+        }
+        self.selected_row = None;
+    }
 }
 
-// ─── egui App 实现 ───
-impl App for GuiFrontend {
+/// 包装 eframe App trait
+struct FlowLensApp {
+    frontend: GuiFrontend,
+    /// 字体是否已初始化（避免每帧重复加载 17MB 字体文件）
+    fonts_initialized: bool,
+}
+
+// __PART3__
+
+impl App for FlowLensApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let dark = self.dark_mode;
-        let evt_count = self.events.lock().map(|e| e.len()).unwrap_or(0);
-
-        ctx.style_mut(|style| {
-            style.visuals.extreme_bg_color = if dark { Color32::from_rgb(18, 18, 28) } else { Color32::from_rgb(238, 240, 245) };
-            style.visuals.panel_fill = if dark { Color32::from_rgb(24, 24, 36) } else { Color32::from_rgb(246, 247, 250) };
-            style.visuals.override_text_color = if dark { Some(Color32::from_rgb(230, 235, 245)) } else { Some(Color32::from_rgb(30, 30, 50)) };
-        });
-
-        egui::TopBottomPanel::top("title").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(16.0);
-                ui.label(egui::RichText::new("FlowLens - Network Traffic Analyzer")
-                    .color(if dark { Color32::from_rgb(0, 210, 255) } else { Color32::from_rgb(0, 100, 200) })
-                    .size(HEADING_FONT_SIZE));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button("Exit").clicked() { ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
-                });
-            });
-        });
-
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                if ui.button("Start Capture").clicked() { self.start_capture(); self.status_msg = "Capturing".to_string(); log_ui("Start capture"); }
-                if ui.button("Stop").clicked() { self.running.store(false, std::sync::atomic::Ordering::SeqCst); self.status_msg = "Stopped".to_string(); log_ui("Stop capture"); }
-                if ui.button("Clear").clicked() { self.clear_events(); }
-                if ui.button("Debug Mode").clicked() { self.toggle_debug(); }
-                if ui.button("Theme").clicked() { self.dark_mode = !self.dark_mode; log_ui("Toggle theme"); }
-                if ui.button("Filter").clicked() { self.show_filter_input = !self.show_filter_input; if self.show_filter_input { self.filter_input.clear(); } }
-                ui.add_space(12.0); ui.separator();
-                ui.label("Hotkeys: D-Debug F-Clear T-Theme /-Filter");
-            });
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                let c = if self.debug_mode { Color32::YELLOW } else { Color32::GREEN };
-                ui.label(egui::RichText::new(format!("Events: {} | Status: {} | Theme: {}", evt_count, self.status_msg, if dark { "Dark" } else { "Light" }))
-                    .size(STATUS_FONT_SIZE).color(c));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(egui::RichText::new("FlowLens v0.1.0").size(STATUS_FONT_SIZE - 4.0));
-                });
-            });
-
-            if self.show_filter_input {
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Filter keyword:").size(STATUS_FONT_SIZE));
-                    ui.text_edit_singleline(&mut self.filter_input);
-                    if ui.button("Apply").clicked() { self.show_filter_input = false; log_ui("Filter applied"); }
-                    if ui.button("Cancel").clicked() { self.show_filter_input = false; self.filter_input.clear(); }
-                });
-                ui.separator();
-            }
-
-            if evt_count == 0 {
-                ui.allocate_space(egui::vec2(ui.available_width(), 200.0));
-                ui.centered_and_justified(|ui| {
-                    ui.label(egui::RichText::new("No events - Click 'Start Capture'").size(STATUS_FONT_SIZE));
-                });
-            } else {
-                ui.horizontal(|ui| {
-                    for h in ["Time", "Type", "Source", "Destination", "Size", "Method/Path"] {
-                        ui.label(egui::RichText::new(h).size(CELL_FONT_SIZE).strong());
-                    }
-                });
-                ui.separator();
-                let start = evt_count.saturating_sub(500);
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for row in &self.events.lock().unwrap()[start..] {
-                        let c = event_color(&row.event_type, dark);
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(format_ts(row.timestamp)).color(c).size(CELL_FONT_SIZE));
-                            ui.label(egui::RichText::new(event_type_cn(&row.event_type)).color(c).size(CELL_FONT_SIZE));
-                            ui.label(egui::RichText::new(row.src_addr.to_string()).size(CELL_FONT_SIZE - 2.0));
-                            ui.label(egui::RichText::new(row.dst_addr.to_string()).size(CELL_FONT_SIZE - 2.0));
-                            ui.label(egui::RichText::new(fmt_bytes(row.body_size)).size(CELL_FONT_SIZE));
-                            ui.label(egui::RichText::new(format!("{} {}", trunc(&row.method, 10), trunc(&row.path, 20))).size(CELL_FONT_SIZE - 2.0));
-                        });
-                    }
-                });
-            }
-        });
-
-        egui::TopBottomPanel::bottom("statusbar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                let c = if self.debug_mode { Color32::YELLOW } else { Color32::GREEN };
-                ui.label(egui::RichText::new(&self.status_msg).size(STATUS_FONT_SIZE - 2.0).color(c));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(egui::RichText::new(if dark { "Dark Theme" } else { "Light Theme" }).size(STATUS_FONT_SIZE - 4.0));
-                });
-            });
-        });
-
-        if self.debug_mode {
-            egui::SidePanel::right("debug_panel").show(ctx, |ui| {
-                ui.strong(egui::RichText::new("Event Details").size(CELL_FONT_SIZE));
-                ui.separator();
-                let events = self.events.lock().unwrap();
-                if events.is_empty() { ui.label("No events to display"); }
-                else {
-                    for (i, row) in events.iter().rev().take(80).enumerate() {
-                        ui.collapsing(format!("#{} {} {}", i+1, event_type_cn(&row.event_type), format_ts(row.timestamp)), |ui| {
-                            ui.label(format!("Source: {}", row.src_addr));
-                            ui.label(format!("Destination: {}", row.dst_addr));
-                            ui.label(format!("Method: {}", row.method));
-                            ui.label(format!("Path: {}", row.path));
-                            ui.label(format!("Status: {}", row.status));
-                            ui.label(format!("Size: {} bytes", row.body_size));
-                        });
-                    }
-                }
-            });
+        // 初始化中文字体（仅首次执行，避免每帧重复读取字体文件造成卡顿）
+        if !self.fonts_initialized {
+            init_cjk_fonts(ctx);
+            self.fonts_initialized = true;
         }
 
-        ctx.input_mut(|i| {
-            if i.consume_key(egui::Modifiers::ALT, egui::Key::D) { self.toggle_debug(); }
-            if i.consume_key(egui::Modifiers::ALT, egui::Key::F) { self.clear_events(); }
-            if i.consume_key(egui::Modifiers::ALT, egui::Key::T) { self.dark_mode = !self.dark_mode; log_ui("Toggle theme"); }
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::F) { self.clear_events(); }
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::D) { self.toggle_debug(); }
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::T) { self.dark_mode = !self.dark_mode; log_ui("Toggle theme"); }
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::Slash) { self.show_filter_input = !self.show_filter_input; if self.show_filter_input { self.filter_input.clear(); } }
+        self.frontend.start_capture();
+
+        // 浅色/深色主题参数
+        let dark = self.frontend.dark_mode;
+        let pal = if dark {
+            ui::Palette::dark()
+        } else {
+            ui::Palette::light()
+        };
+
+        // 字体大小：标题 16，表头 13，正文 12，状态栏 11
+        let mut style = (*ctx.style()).clone();
+        *style.text_styles.get_mut(&egui::TextStyle::Heading).unwrap() =
+            egui::FontId::proportional(16.0);
+        *style.text_styles.get_mut(&egui::TextStyle::Body).unwrap() =
+            egui::FontId::proportional(12.0);
+        *style.text_styles.get_mut(&egui::TextStyle::Monospace).unwrap() =
+            egui::FontId::proportional(12.0);
+        *style.text_styles.get_mut(&egui::TextStyle::Small).unwrap() =
+            egui::FontId::proportional(11.0);
+        
+        // 根据主题设置视觉样式
+        style.visuals = if dark {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
+        style.visuals.hyperlink_color = Color32::from_rgb(76, 175, 255);
+        
+        // 优化按钮和输入框视觉层次
+        style.visuals.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(45, 45, 45);
+        style.visuals.widgets.hovered.bg_stroke.color = Color32::from_rgb(65, 65, 65);
+        style.visuals.widgets.active.bg_stroke.color = Color32::from_rgb(85, 85, 85);
+        style.visuals.widgets.open.bg_stroke.color = Color32::from_rgb(65, 65, 65);
+        
+        // 更深的面板背景
+        style.visuals.panel_fill = Color32::from_rgb(25, 25, 25);
+        style.visuals.extreme_bg_color = Color32::from_rgb(25, 25, 25);
+        
+        // 更清晰的选中效果
+        style.visuals.selection.bg_fill = Color32::from_rgb(51, 51, 51);
+        
+        // 更清晰的边框
+        style.visuals.window_fill = Color32::from_rgb(30, 30, 30);
+        style.visuals.window_stroke.color = Color32::from_rgb(51, 51, 51);
+        
+        // 设置行 hover 效果
+        style.visuals.widgets.hovered.bg_fill = pal.hover;
+        
+        ctx.set_style(style);
+
+        // ---- 顶部标题栏 ----
+        egui::TopBottomPanel::top("header")
+            .frame(egui::Frame::none().fill(Color32::from_rgb(30, 30, 30)))
+            .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(14.0);
+                ui.heading(RichText::new("流光 — 网络流量分析器").size(18.0));
+                ui.separator();
+
+                let evt_count = self.frontend.events.lock().map(|e| e.len()).unwrap_or(0);
+                let running = self.frontend.running.load(Ordering::SeqCst);
+
+                // 状态指示器 - 使用更大的尺寸和更鲜明的颜色
+                if running {
+                    ui.label(
+                        RichText::new("● 运行中")
+                            .color(Color32::from_rgb(0, 255, 100)) // GREEN
+                            .size(16.0), // 加大尺寸
+                    );
+                } else {
+                    ui.label(
+                        RichText::new("○ 已停止")
+                            .color(Color32::from_rgb(128, 128, 128)) // GRAY
+                            .size(16.0), // 加大尺寸
+                    );
+                }
+
+                ui.separator();
+                // 事件计数 - 使用 RichText 并加粗
+                ui.label(RichText::new(format!("事件 {}", evt_count)).size(14.0).strong());
+
+                // 搜索框样式优化
+                ui.add_space(20.0);
+
+                // 使用 egui::TextEdit 的默认样式，但通过 UI 设置背景和边框
+                let text_edit = egui::TextEdit::singleline(&mut self.frontend.filter_input)
+                    .hint_text("过滤：主机 / PID / 方法 / 路径")
+                    .desired_width(300.0);
+
+                let response = ui.add(text_edit);
+                
+                // 手动绘制背景和边框
+                let rect = response.rect;
+                let rounded_rect = egui::Rect::from_two_pos(rect.min, rect.max);
+                ui.painter().rect_filled(rounded_rect, 6.0_f32, Color32::from_rgb(45, 45, 45));
+                ui.painter().add(egui::Shape::rect_stroke(rounded_rect, 6.0_f32, egui::Stroke::new(1.0_f32, Color32::from_rgb(68, 68, 68))));
+
+                ui.add_space(10.0);
+
+                // 按钮样式优化 - 使用圆角和 hover 效果
+                if ui.add(
+                    egui::Button::new("清空")
+                        .rounding(egui::Rounding::from(6.0))
+                        .fill(Color32::from_rgb(60, 60, 60))
+                ).clicked() {
+                    self.frontend.clear_events();
+                }
+                if ui.add(
+                    egui::Button::new(if dark { "浅色" } else { "深色" })
+                        .rounding(egui::Rounding::from(6.0))
+                        .fill(if dark {
+                            Color32::from_rgb(40, 40, 40)
+                        } else {
+                            Color32::from_rgb(80, 80, 80)
+                        })
+                ).clicked() {
+                    self.frontend.dark_mode = !self.frontend.dark_mode;
+                }
+                ui.add_space(14.0);
+            });
+        });
+
+        // ---- 主表格区域 ----
+        egui::CentralPanel::default().frame(
+            egui::Frame::none().fill(pal.panel).inner_margin(egui::Margin::same(0.0))
+        ).show(ctx, |ui| {
+            ScrollArea::both()
+                .id_salt("event_table")
+                .show(ui, |ui| {
+                    ui.visuals_mut().selection.bg_fill = pal.selection;
+                    draw_table(ui, &mut self.frontend, &pal);
+                });
+        });
+
+        // ---- 底部状态栏 ----
+        egui::TopBottomPanel::bottom("status")
+            .resizable(false)
+            .frame(egui::Frame::none().fill(Color32::from_rgb(21, 21, 21)))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    // 快捷键提示 - 使用 RichText 并加粗
+                    ui.label(
+                        RichText::new("ESC 关闭 | F5 刷新 | 点击行查看详情")
+                            .size(11.0)
+                            .color(Color32::from_rgb(170, 170, 170))
+                            .strong(),
+                    );
+                    ui.add_space(16.0);
+                    ui.label(
+                        RichText::new("FlowLens v0.1.0")
+                            .size(11.0)
+                            .color(Color32::from_rgb(170, 170, 170)),
+                    );
+                    if let Some(idx) = self.frontend.selected_row {
+                        if let Ok(events) = self.frontend.events.lock() {
+                            if let Some(row) = events.get(idx) {
+                                ui.add_space(16.0);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "已选: {}  {}",
+                                        row.src_addr, row.path
+                                    ))
+                                    .size(11.0)
+                                    .color(pal.secondary),
+                                );
+                            }
+                        }
+                    }
+                });
+            });
+    }
+}
+
+// __PART4__
+
+/// 主题色板（暗色/亮色）
+mod ui {
+    use egui::{Color32, Visuals};
+
+    #[derive(Clone)]
+    pub struct Palette {
+        pub panel: Color32,
+        pub muted: Color32,
+        pub secondary: Color32,
+        pub row_even: Color32,
+        pub row_odd: Color32,
+        pub header: Color32,
+        pub header_bg: Color32,
+        pub selection: Color32,
+        pub hover: Color32,
+        pub separator: Color32,
+        #[allow(dead_code)]
+        pub visuals: Visuals,
+    }
+
+    impl Palette {
+        pub fn dark() -> Self {
+            Self {
+                panel: Color32::from_rgb(30, 30, 30), // #1E1E1E - 更深的暗色
+                muted: Color32::from_rgb(170, 170, 170), // #AAAAAA
+                secondary: Color32::from_rgb(190, 190, 190), // #BEBEBE
+                row_even: Color32::from_rgb(32, 32, 32), // #202020 - 偶数行
+                row_odd: Color32::from_rgb(37, 37, 37), // #252525 - 奇数行
+                header: Color32::from_rgb(204, 204, 204), // #CCCCCC - 表头颜色
+                header_bg: Color32::from_rgb(30, 30, 30), // #1E1E1E - 表头背景色
+                selection: Color32::from_rgb(51, 51, 51), // #333333
+                hover: Color32::from_rgb(50, 50, 50), // #323232
+                separator: Color32::from_rgb(51, 51, 51), // #333333 - 行分隔线
+                visuals: Visuals::dark(),
+            }
+        }
+
+        pub fn light() -> Self {
+            Self {
+                panel: Color32::from_rgb(245, 246, 250),
+                muted: Color32::from_rgb(140, 148, 160),
+                secondary: Color32::from_rgb(80, 90, 106),
+                row_even: Color32::from_rgb(255, 255, 255),
+                row_odd: Color32::from_rgb(248, 249, 252),
+                header: Color32::from_rgb(36, 42, 56),
+                header_bg: Color32::from_rgb(245, 246, 250),
+                selection: Color32::from_rgb(190, 215, 255),
+                hover: Color32::from_rgb(230, 230, 230),
+                separator: Color32::from_rgb(220, 222, 228),
+                visuals: Visuals::light(),
+            }
+        }
+    }
+}
+
+use ui::Palette;
+
+/// 绘制事件主表格
+fn draw_table(ui: &mut egui::Ui, frontend: &mut GuiFrontend, pal: &Palette) {
+    // 表头样式优化
+    ui.horizontal(|ui| {
+        ui.scope(|ui| {
+            ui.set_width(ui.available_width());
+            ui.set_height(30.0_f32);
+            ui.painter().rect_filled(ui.max_rect(), 0.0_f32, pal.header_bg);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("时间").size(12.0).color(pal.header).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new("源地址").size(12.0).color(pal.header).strong());
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new("目标地址").size(12.0).color(pal.header).strong());
+                });
+                ui.label(RichText::new("类型").size(12.0).color(pal.header).strong());
+                ui.label(RichText::new("方法").size(12.0).color(pal.header).strong());
+                ui.label(RichText::new("状态").size(12.0).color(pal.header).strong());
+                ui.label(RichText::new("大小").size(12.0).color(pal.header).strong());
+                ui.label(RichText::new("路径").size(12.0).color(pal.header).strong());
+            });
+        });
+    });
+    
+    // 表头分隔线 - 使用 painter 绘制
+    ui.painter().add(egui::Shape::line_segment([
+        egui::pos2(0.0, 30.0),
+        egui::pos2(ui.max_rect().max.x, 30.0)
+    ], egui::Stroke::new(1.0_f32, pal.separator)));
+
+    let filter = frontend.filter_input.to_lowercase();
+    let (filtered, total_len): (Vec<TrafficRow>, usize) = {
+        let events = match frontend.events.lock() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        let picked: Vec<TrafficRow> = if filter.is_empty() {
+            events.clone()
+        } else {
+            events
+                .iter()
+                .filter(|row| {
+                    row.src_addr.to_lowercase().contains(&filter)
+                        || row.dst_addr.to_lowercase().contains(&filter)
+                        || row.method.to_lowercase().contains(&filter)
+                        || row.path.to_lowercase().contains(&filter)
+                })
+                .cloned()
+                .collect()
+        };
+        (picked, events.len())
+    };
+
+    for (i, row) in filtered.iter().rev().enumerate() {
+        let idx = total_len.saturating_sub(1).saturating_sub(i);
+        let is_selected = frontend.selected_row == Some(idx);
+
+        let response = ui.horizontal(|ui| {
+            ui.set_min_height(24.0);
+            
+            // 使用 hover 效果
+            let bg = if is_selected {
+                pal.selection
+            } else if idx % 2 == 0 {
+                pal.row_even
+            } else {
+                pal.row_odd
+            };
+
+            let _bg_rect = ui.painter().rect_filled(
+                ui.max_rect(),
+                0.0_f32,
+                bg,
+            );
+
+            ui.label(RichText::new(format_ts(row.timestamp)).size(12.0).color(pal.secondary));
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(RichText::new(trunc(&row.src_addr, 14)).size(12.0).color(pal.muted));
+            });
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(RichText::new(trunc(&row.dst_addr, 14)).size(12.0).color(pal.muted));
+            });
+
+            let type_col = event_color(&row.event_type, true);
+            ui.label(RichText::new(event_type_cn(&row.event_type)).size(12.0).color(type_col));
+            ui.label(RichText::new(trunc(&row.method, 8)).size(12.0).color(pal.secondary));
+            let status_num: u16 = row.status.parse().unwrap_or(0);
+            let sc = status_color(status_num, true);
+            ui.label(RichText::new(row.status.to_string()).size(12.0).color(sc));
+            ui.label(RichText::new(fmt_bytes(row.body_size)).size(12.0).color(pal.secondary));
+            ui.label(RichText::new(trunc(&row.path, 24)).size(12.0).color(pal.secondary));
+        });
+
+        if response.response.clicked() {
+            frontend.selected_row = Some(idx);
+        }
+
+        // 绘制行分隔线（除了最后一行）
+        if i < filtered.len() - 1 {
+            let y = 24.0_f32;
+            ui.painter().add(egui::Shape::line_segment([
+                egui::pos2(0.0, y),
+                egui::pos2(ui.max_rect().max.x, y)
+            ], egui::Stroke::new(1.0_f32, pal.separator)));
+        }
+    }
+
+    if filtered.is_empty() {
+        ui.centered_and_justified(|ui| {
+            ui.label(RichText::new(if filter.is_empty() { "暂无事件" } else { "无匹配事件" }).size(13.0).color(pal.muted));
         });
     }
 }
 
-use crate::UiFrontend;
+// __PART5__
+
 impl UiFrontend for GuiFrontend {
     fn run(&self, bus: Arc<dyn EventBus>) -> anyhow::Result<()> {
-        let app = Self {
+        let frontend = Self {
             events: self.events.clone(),
             running: self.running.clone(),
-            debug_mode: self.debug_mode,
             dark_mode: self.dark_mode,
             filter_input: self.filter_input.clone(),
-            show_filter_input: self.show_filter_input,
-            status_msg: self.status_msg.clone(),
             selected_row: self.selected_row,
             bus: Some(bus),
         };
+
         eframe::run_native(
-            "FlowLens - Network Traffic Analyzer",
-            eframe::NativeOptions::default(),
-            Box::new(|_cc| Ok(Box::new(app))),
-        ).map_err(|e| anyhow::anyhow!(e.to_string()))
+            "流光 - 网络流量分析器",
+            eframe::NativeOptions {
+                viewport: egui::ViewportBuilder::default()
+                    .with_inner_size((1280.0, 820.0))
+                    .with_min_inner_size((900.0, 500.0)),
+                ..Default::default()
+            },
+            Box::new(|_cc| {
+                Ok(Box::new(FlowLensApp {
+                    frontend,
+                    fonts_initialized: false,
+                }))
+            }),
+        )
+        .map_err(|e| anyhow::anyhow!(e.to_string()))
     }
+
     fn stop(&self) -> anyhow::Result<()> {
-        self.running.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.running.store(false, Ordering::SeqCst);
         Ok(())
     }
 }
@@ -288,9 +668,59 @@ impl UiFrontend for GuiFrontend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn test_gui_creation() { let _gui = GuiFrontend::new(); }
-    #[test] fn test_event_type_cn() { assert_eq!(event_type_cn("connection"), "连接"); }
-    #[test] fn test_format_ts() { assert_eq!(format_ts(0), "00:00:00"); }
-    #[test] fn test_fmt_bytes() { assert_eq!(fmt_bytes(0), "0 B"); assert_eq!(fmt_bytes(1024), "1.00 KB"); }
-    #[test] fn test_trunc() { assert_eq!(trunc("hello", 10), "hello"); assert_eq!(trunc("hello world", 5), "hello…"); }
+
+    #[test]
+    fn test_gui_creation() {
+        let _gui = GuiFrontend::new();
+    }
+
+    #[test]
+    fn test_event_type_cn() {
+        assert_eq!(event_type_cn("connection"), "连接");
+        assert_eq!(event_type_cn("http_request"), "HTTP 请求");
+        assert_eq!(event_type_cn("http_response"), "HTTP 响应");
+        assert_eq!(event_type_cn("tls"), "TLS");
+        assert_eq!(event_type_cn("websocket"), "WebSocket");
+        assert_eq!(event_type_cn("sse"), "SSE");
+        assert_eq!(event_type_cn("dns"), "DNS");
+        assert_eq!(event_type_cn("unknown"), "其他");
+    }
+
+    #[test]
+    fn test_format_ts() {
+        assert_eq!(format_ts(0), "--:--:--.-");
+        assert_eq!(format_ts(123456789), "10:17:36.7");
+        assert_eq!(format_ts(1000), "00:00:01.0");
+    }
+
+    #[test]
+    fn test_fmt_bytes() {
+        assert_eq!(fmt_bytes(0), "0 B");
+        assert_eq!(fmt_bytes(512), "512 B");
+        assert_eq!(fmt_bytes(1024), "1.00 KB");
+        assert_eq!(fmt_bytes(1024 * 1024), "1.00 MB");
+    }
+
+    #[test]
+    fn test_trunc() {
+        assert_eq!(trunc("hello", 10), "hello");
+        assert_eq!(trunc("hello world", 5), "hell…");
+        assert_eq!(trunc("你好世界", 2), "你…");
+        assert_eq!(trunc("", 5), "");
+    }
+
+    #[test]
+    fn test_status_color() {
+        let dark = true;
+        assert_eq!(status_color(200, dark), Color32::from_rgb(76, 201, 120));
+        assert_eq!(status_color(404, dark), Color32::from_rgb(240, 150, 70));
+        assert_eq!(status_color(500, dark), Color32::from_rgb(235, 90, 90));
+        assert_eq!(status_color(0, dark), Color32::from_rgb(150, 156, 166));
+    }
+
+    #[test]
+    fn test_palette() {
+        let _dark = Palette::dark();
+        let _light = Palette::light();
+    }
 }
