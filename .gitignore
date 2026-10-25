@@ -53,6 +53,14 @@ ui/dist/
 ui/.vite/
 ui/src-tauri/target/
 
+# Local Cargo home / registry cache (created by sandboxed builds)
+.cargo-home/
+
+# Ad-hoc test / QA output captured during development
+check_out.txt
+qa_test_output.txt
+test_out.txt
+
 # Note: Npcap import libraries (wpdlib/*.lib, wpdlib/*.def) ARE committed on
 # purpose so the crate builds on a plain Windows host with only the Npcap
 # runtime installed. See wpdlib/README.md.
