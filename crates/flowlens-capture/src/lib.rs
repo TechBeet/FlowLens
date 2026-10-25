@@ -320,7 +320,7 @@ pub fn spawn_mock_producer(bus: Arc<dyn EventBus>) {
     use std::sync::atomic::AtomicU64;
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let _ = COUNTER;
-    tokio::spawn(async move {
+    std::thread::spawn(move || {
         let mut n: u64 = 0;
         let sleep = std::time::Duration::from_millis(80);
         tracing::info!("Mock event producer started");
@@ -330,7 +330,7 @@ pub fn spawn_mock_producer(bus: Arc<dyn EventBus>) {
                 break;
             }
             n += 1;
-            tokio::time::sleep(sleep).await;
+            std::thread::sleep(sleep);
         }
     });
 }
