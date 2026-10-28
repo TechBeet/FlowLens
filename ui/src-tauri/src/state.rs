@@ -1,34 +1,23 @@
-use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Mutex, Arc};
+use tokio::task::JoinHandle;
+use flowlens_core::TrafficStats;
 use flowlens_core::BroadcastEventBus;
-use serde::Serialize;
-
-#[derive(Debug, Serialize, Clone)]
-pub struct TrafficStats {
-    pub connections: u64,
-    pub http: u64,
-    pub tls: u64,
-    pub sse: u64,
-    pub websocket: u64,
-    pub total: u64,
-}
 
 pub struct AppState {
-    pub event_bus: BroadcastEventBus,
-    pub stats: Mutex<TrafficStats>,
+    pub event_bus: Arc<BroadcastEventBus>,
+    pub stats: Arc<Mutex<TrafficStats>>,
+    pub running: Arc<AtomicBool>,
+    pub pump_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl AppState {
     pub fn new(event_bus: BroadcastEventBus) -> Self {
         Self {
-            event_bus,
-            stats: Mutex::new(TrafficStats {
-                connections: 0,
-                http: 0,
-                tls: 0,
-                sse: 0,
-                websocket: 0,
-                total: 0,
-            }),
+            event_bus: Arc::new(event_bus),
+            stats: Arc::new(Mutex::new(TrafficStats::default())),
+            running: Arc::new(AtomicBool::new(false)),
+            pump_task: Mutex::new(None),
         }
     }
 }

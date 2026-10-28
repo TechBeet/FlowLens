@@ -247,6 +247,17 @@ pub enum TrafficEvent {
     },
 }
 
+/// Aggregated traffic statistics for the UI.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TrafficStats {
+    pub connections: u64,
+    pub http: u64,
+    pub tls: u64,
+    pub sse: u64,
+    pub websocket: u64,
+    pub total: u64,
+}
+
 /// Traffic filter for event subscription
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TrafficFilter {

@@ -1,142 +1,198 @@
 <script lang="ts">
-  export let running = false;
-  export let stats: any = { connections: 0, http: 0, tls: 0, sse: 0, websocket: 0, total: 0 };
-  
-  export function startCapture() {
-    // This is handled by the parent component
+  import type { TrafficStats } from "../lib/types";
+
+  interface Props {
+    running?: boolean;
+    stats?: TrafficStats;
+    isLoading?: boolean;
+    theme?: "dark" | "light";
+    onstart?: () => void;
+    onstop?: () => void;
+    ontoggletheme?: () => void;
   }
-  
-  export function stopCapture() {
-    // This is handled by the parent component
+
+  let {
+    running = false,
+    stats = { connections: 0, http: 0, tls: 0, sse: 0, websocket: 0, total: 0 },
+    isLoading = false,
+    theme = "dark",
+    onstart,
+    onstop,
+    ontoggletheme,
+  }: Props = $props();
+
+  function handleCapture() {
+    if (running) {
+      onstop?.();
+    } else {
+      onstart?.();
+    }
   }
 </script>
 
 <header class="header">
-  <div class="logo">FlowLens</div>
-  <div class="window-controls">
-    <button class="control-btn" title="最小化">
-      <span class="symbol">_</span>
+  <div class="brand">
+    <span class="logo-icon">&#9670;</span>
+    <span class="logo-text">流光 FlowLens</span>
+  </div>
+
+  <div class="capture-indicator" class:active={running}>
+    <span class="status-dot"></span>
+    <span class="status-label">{running ? "捕获中" : "未捕获"}</span>
+  </div>
+
+  <div class="actions">
+    <button
+      class="btn primary"
+      class:danger={running}
+      disabled={isLoading}
+      onclick={handleCapture}
+    >
+      {running ? "■ 停止捕获" : "● 开始捕获"}
     </button>
-    <button class="control-btn" title="最大化">
-      <span class="symbol">□</span>
-    </button>
-    <button class="control-btn close" title="关闭">
-      <span class="symbol">✕</span>
+
+    <button
+      class="icon-btn"
+      onclick={() => ontoggletheme?.()}
+      title="切换主题 (F2)"
+      aria-label="切换主题"
+    >
+      {theme === "dark" ? "☀" : "☾"}
     </button>
   </div>
 </header>
-
-<div class="toolbar">
-  <div class="left-group">
-    <button 
-      class="btn" 
-      class:active={running}
-      on:click={() => running ? stopCapture() : startCapture()}
-    >
-      {running ? '⏚ 停止捕获' : '● 开始捕获'}
-    </button>
-    <button class="btn">清除</button>
-    <button class="btn">导出</button>
-    <button class="btn">设置</button>
-  </div>
-  <div class="right-group">
-    <span class="stats-badge">连接: {stats.connections}</span>
-    <span class="stats-badge">HTTP: {stats.http}</span>
-    <span class="stats-badge">TLS: {stats.tls}</span>
-    <span class="stats-badge">SSE: {stats.sse}</span>
-    <span class="stats-badge">WS: {stats.websocket}</span>
-    <span class="stats-badge">全部: {stats.total}</span>
-  </div>
-</div>
 
 <style>
   .header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
-    background: #12121e;
-    border-bottom: 1px solid #222;
-  }
-
-  .logo {
-    font-size: 18px;
-    font-weight: 600;
-    color: #7c5af3;
-  }
-
-  .window-controls {
-    display: flex;
-    gap: 8px;
-  }
-
-  .control-btn {
-    width: 28px;
-    height: 28px;
-    background: transparent;
-    border: none;
-    color: #888;
-    cursor: pointer;
-    border-radius: 4px;
-    transition: all 0.15s;
-  }
-
-  .control-btn:hover {
-    background: #1e1e2e;
-    color: #eee;
-  }
-
-  .control-btn.close:hover {
-    background: #e01e36;
-    color: white;
-  }
-
-  .symbol {
-    font-size: 14px;
-  }
-
-  .toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    gap: 16px;
     padding: 10px 16px;
-    background: #151520;
-    border-bottom: 1px solid #222;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
   }
 
-  .left-group, .right-group {
+  .brand {
     display: flex;
-    gap: 8px;
     align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--fg);
+    white-space: nowrap;
+  }
+
+  .logo-icon {
+    color: var(--accent);
+    font-size: 18px;
+  }
+
+  .logo-text {
+    letter-spacing: 0.4px;
+  }
+
+  .capture-indicator {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+
+  .capture-indicator.active {
+    border-color: var(--ok);
+    color: var(--ok);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--fg-dim);
+  }
+
+  .capture-indicator.active .status-dot {
+    background: var(--ok);
+    box-shadow: 0 0 6px var(--ok);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .btn {
-    padding: 6px 12px;
-    background: #1e1e2e;
-    border: 1px solid #333;
-    border-radius: 4px;
-    color: #bbb;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
     font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--fg);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    white-space: nowrap;
   }
 
-  .btn:hover {
-    background: #2a2a3e;
-    border-color: #555;
+  .btn:hover:not(:disabled) {
+    background: var(--hover);
+    border-color: var(--accent);
   }
 
-  .btn.active {
-    background: #7c5af3;
-    border-color: #7c5af3;
-    color: #fff;
+  .btn.primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-color: var(--accent);
   }
 
-  .stats-badge {
-    font-size: 12px;
-    padding: 2px 8px;
-    background: #1e1e2e;
-    border-radius: 10px;
-    color: #bbb;
+  .btn.primary:hover:not(:disabled) {
+    filter: brightness(1.12);
+  }
+
+  .btn.primary.danger {
+    background: var(--err);
+    border-color: var(--err);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--fg);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .icon-btn:hover {
+    background: var(--hover);
+    border-color: var(--accent);
   }
 </style>

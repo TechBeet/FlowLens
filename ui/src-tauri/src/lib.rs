@@ -13,15 +13,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::start_capture,
             commands::stop_capture,
+            commands::get_stats,
+            commands::list_devices,
         ])
         .setup(|_app| {
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-fn main() {
-    commands::init();
-    run();
 }

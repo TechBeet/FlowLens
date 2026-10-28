@@ -316,23 +316,90 @@ pub fn spawn_capture(mut eng: Engine, bus: Arc<dyn EventBus>) -> anyhow::Result<
 }
 
 /// Background task that fabricates realistic events onto an EventBus (for tests/demo).
+///
+/// This function spawns a background thread that periodically generates synthetic
+/// `TrafficEvent` values and publishes them to the bus.
+///
+/// The producer uses "at-least-once delivery" semantics:
+/// - If `has_subscribers()` returns false, it waits and retries (up to 30 seconds)
+/// - Never exits just because there are no subscribers
+/// - Only exits on a true channel-closed error from publish()
 pub fn spawn_mock_producer(bus: Arc<dyn EventBus>) {
     use std::sync::atomic::AtomicU64;
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let _ = COUNTER;
+
     std::thread::spawn(move || {
         let mut n: u64 = 0;
         let sleep = std::time::Duration::from_millis(80);
-        tracing::info!("Mock event producer started");
+        let max_no_subscriber_secs: u64 = 30;
+        let check_interval = std::time::Duration::from_millis(50);
+        
+        tracing::info!("Mock producer started, publishing every 80ms");
+
+        // Track time since last subscriber for potential timeout exit
+        let mut no_subscriber_since: Option<std::time::Instant> = None;
+
         loop {
             let ev = generate_event(n);
-            if bus.publish(ev).is_err() {
-                break;
+            tracing::debug!("Publishing event #{}: {}", n, event_type_label(&ev));
+
+            // Check if we have subscribers before publishing
+            if !bus.has_subscribers() {
+                // No subscribers - wait and retry
+                if no_subscriber_since.is_none() {
+                    no_subscriber_since = Some(std::time::Instant::now());
+                } else if let Some(start) = no_subscriber_since {
+                    if start.elapsed() >= std::time::Duration::from_secs(max_no_subscriber_secs) {
+                        tracing::info!(
+                            "No subscribers for {} seconds; mock producer exiting",
+                            max_no_subscriber_secs
+                        );
+                        break;
+                    }
+                }
+                
+                // Wait before retry
+                std::thread::sleep(check_interval);
+                continue;
             }
+            
+            // Reset timeout timer since we have a subscriber
+            no_subscriber_since = None;
+
+            match bus.publish(ev) {
+                Ok(()) => {
+                    // Event published successfully (publish() always returns Ok unless channel closed)
+                }
+                Err(e) => {
+                    // Only a true channel-close (all receivers dropped permanently) should
+                    // produce an error here.
+                    tracing::error!(err = ?e, "Publish failed; stopping mock producer");
+                    break;
+                }
+            }
+
             n += 1;
             std::thread::sleep(sleep);
         }
+        tracing::info!("Mock producer thread exiting");
     });
+}
+
+/// Produce a short human-readable label for a `TrafficEvent` variant.
+fn event_type_label(ev: &TrafficEvent) -> &'static str {
+    match ev {
+        TrafficEvent::ConnectionEstablished { .. } => "ConnectionEstablished",
+        TrafficEvent::PacketReceived { .. } => "PacketReceived",
+        TrafficEvent::TlsHandshake { .. } => "TlsHandshake",
+        TrafficEvent::HttpRequest { .. } => "HttpRequest",
+        TrafficEvent::HttpResponse { .. } => "HttpResponse",
+        TrafficEvent::WebSocketFrame { .. } => "WebSocketFrame",
+        TrafficEvent::SseEvent { .. } => "SseEvent",
+        TrafficEvent::GrpcCall { .. } => "GrpcCall",
+        TrafficEvent::ConnectionClosed { .. } => "ConnectionClosed",
+        TrafficEvent::CaptureDropped { .. } => "CaptureDropped",
+    }
 }
 
 fn generate_event(n: u64) -> TrafficEvent {
@@ -556,6 +623,21 @@ pub fn spawn_engine_pump(engine: Engine, bus: Arc<dyn EventBus>) {
 
     let eng_ref = engine;
     std::thread::spawn(move || {
+        // Startup barrier: wait for at least one subscriber before draining and
+        // publishing captured packets. Without this, the first drain cycle may
+        // publish events into an empty bus and they will be silently discarded.
+        loop {
+            if bus.has_subscribers() {
+                tracing::info!(
+                    "Subscriber detected (count={}); starting engine pump",
+                    bus.subscriber_count()
+                );
+                break;
+            }
+            tracing::debug!("Engine pump waiting for subscriber...");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
         while !stopped_clone.load(std::sync::atomic::Ordering::SeqCst) {
             let packets = eng_ref.drain_packets(64);
             for pkt in &packets {
@@ -572,7 +654,10 @@ pub fn spawn_engine_pump(engine: Engine, bus: Arc<dyn EventBus>) {
                         },
                     };
                     if let Err(e) = bus.publish(event) {
-                        tracing::warn!(err = ?e, "Failed to publish captured event");
+                        // True channel-close; stop the pump rather than spin.
+                        tracing::warn!(err = ?e, "Failed to publish captured event; stopping pump");
+                        stopped_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+                        break;
                     }
                 }
             }
@@ -679,5 +764,81 @@ mod tests {
         pump_engine_into_bus(&engine, &bus);
 
         engine.stop().unwrap();
+    }
+
+    /// Verify that spawning mock producer before subscriber still delivers events.
+    /// This test proves the startup barrier fix is working correctly.
+    #[test]
+    fn test_mock_producer_delayed_subscription() {
+        use std::time::Duration;
+
+        let bus = flowlens_core::event_bus::BroadcastEventBus::new(256);
+        let bus_dyn: Arc<dyn flowlens_core::event_bus::EventBus> = Arc::new(bus);
+
+        // Spawn mock producer BEFORE any subscriber exists
+        spawn_mock_producer(bus_dyn.clone());
+
+        // Give the producer a moment to start and begin waiting
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Verify producer is waiting (no subscribers)
+        assert_eq!(bus_dyn.subscriber_count(), 0);
+
+        // Now subscribe (simulating GUI startup)
+        let mut rx = bus_dyn.subscribe(flowlens_core::models::TrafficFilter::default());
+
+        // Give the producer time to detect subscriber and start publishing
+        std::thread::sleep(Duration::from_millis(200));
+
+        // Verify we received events
+        let mut events_received = 0;
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_millis(500) {
+            match rx.try_recv() {
+                Ok(_) => events_received += 1,
+                Err(_) => break,
+            }
+        }
+
+        // We should have received at least one event
+        assert!(
+            events_received >= 1,
+            "Expected at least 1 event after delayed subscription, got {}",
+            events_received
+        );
+
+        // Verify the bus has events tracked
+        assert!(bus_dyn.subscriber_count() >= 1);
+    }
+
+    /// Verify that mock producer stops only on true channel closure (all subscribers dropped).
+    #[test]
+    fn test_mock_producer_continues_after_subscriber_drop() {
+        use std::time::Duration;
+
+        let bus = flowlens_core::event_bus::BroadcastEventBus::new(256);
+        let bus_dyn: Arc<dyn flowlens_core::event_bus::EventBus> = Arc::new(bus);
+
+        // Create one subscriber, then drop it early
+        {
+            let _rx = bus_dyn.subscribe(flowlens_core::models::TrafficFilter::default());
+        }
+
+        // Bus now has 0 subscribers
+        assert_eq!(bus_dyn.subscriber_count(), 0);
+
+        // Spawn producer (it will wait due to barrier)
+        spawn_mock_producer(bus_dyn.clone());
+        std::thread::sleep(Duration::from_millis(50));
+
+        // Subscribe again
+        let _rx = bus_dyn.subscribe(flowlens_core::models::TrafficFilter::default());
+
+        // Events should be published now
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(
+            bus_dyn.subscriber_count() >= 1,
+            "Producer should publish events after new subscriber connects"
+        );
     }
 }

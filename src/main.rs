@@ -45,6 +45,14 @@ fn main() -> anyhow::Result<()> {
                     if status || events || filters {
                         let bus = Arc::new(flowlens_core::event_bus::BroadcastEventBus::default());
 
+                        // Subscribe a listener to ensure the mock producer starts publishing.
+                        // The report reads from `get_latest_events()` snapshot, not from receiver.
+                        let _listener = bus.subscribe(flowlens_core::models::TrafficFilter::default());
+                        tracing::debug!(
+                            "One-shot mode: listener registered (count={})",
+                            bus.subscriber_count()
+                        );
+
                         // Try to initialize real capture; fall back to mock if Npcap unavailable.
                         let mut engine = flowlens_capture::Engine::auto();
                         let using_real = matches!(engine, flowlens_capture::Engine::Pcap(_));
@@ -115,6 +123,10 @@ fn main() -> anyhow::Result<()> {
 
                     // Create the in-memory broadcast event bus
                     let bus = Arc::new(flowlens_core::event_bus::BroadcastEventBus::default());
+
+                    tracing::info!(
+                        "Event bus ready; subscribers will be added by frontend"
+                    );
 
                     // Initialize real capture, auto-detecting Npcap. Falls back to mock
                     // producer if Npcap is not installed, device cannot be opened, or --mock flag is set.

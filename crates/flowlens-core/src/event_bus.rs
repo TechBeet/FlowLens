@@ -12,6 +12,22 @@ pub trait EventBus: Send + Sync + 'static {
 
     /// Get the total number of subscribers
     fn subscriber_count(&self) -> usize;
+
+    /// Whether at least one subscriber is currently connected.
+    fn has_subscribers(&self) -> bool {
+        self.subscriber_count() > 0
+    }
+
+    /// Whether the broadcast channel has been closed (all receivers dropped).
+    /// Note: In tokio broadcast, the channel is only "closed" when all receivers
+    /// have been dropped AND a send would fail. Zero subscribers is not the same
+    /// as closed - the channel can have zero subscribers but still accept new ones.
+    fn is_closed(&self) -> bool {
+        // We need to track if the channel sender has been closed separately
+        // For now, return false - the channel is only truly closed if send() fails
+        // and we can't determine that from subscriber count alone
+        false
+    }
 }
 
 /// Diagnostics trait for BroadcastEventBus-specific querying
@@ -42,6 +58,10 @@ pub enum EventBusError {
 /// In-memory broadcast event bus implementation with diagnostics.
 pub struct BroadcastEventBus {
     sender: broadcast::Sender<TrafficEvent>,
+    /// Internal dummy receiver to keep the channel open for publishing.
+    /// We never receive from it, but it prevents send() from failing when
+    /// external subscribers have not yet connected.
+    _internal_rx: broadcast::Receiver<TrafficEvent>,
     evt_cnt: std::sync::Arc<std::sync::atomic::AtomicU64>,
     recent: std::sync::Arc<std::sync::Mutex<Vec<TrafficRow>>>,
     filters: std::sync::Arc<std::sync::Mutex<Vec<TrafficFilter>>>,
@@ -49,9 +69,10 @@ pub struct BroadcastEventBus {
 
 impl BroadcastEventBus {
     pub fn new(capacity: usize) -> Self {
-        let (sender, _) = broadcast::channel(capacity);
+        let (sender, internal_rx) = broadcast::channel(capacity);
         Self {
             sender,
+            _internal_rx: internal_rx,
             evt_cnt: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             recent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             filters: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -85,34 +106,65 @@ impl Default for BroadcastEventBus {
 
 impl EventBus for BroadcastEventBus {
     fn publish(&self, event: TrafficEvent) -> Result<(), EventBusError> {
+        let start = std::time::Instant::now();
+        
         let row = TrafficRow::from_event(&event);
-        // Note: broadcast::Sender::send() returns Ok(n) with receiver count if successful,
-        // or Err(SendError) only when ALL receivers have dropped.
-        // We accept that events may not be received if no subscribers yet exist.
-        let _ = self.sender.send(event);
+        
+        // Always update diagnostics first (evt_cnt and recent snapshot)
+        // This ensures --status / --events reporting works correctly
         self.evt_cnt
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if let Some(row) = row {
-            if let Ok(mut r) = self.recent.lock() {
-                r.push(row);
-                while r.len() > 500 {
-                    r.remove(0);
+        if let Some(r) = row {
+            if let Ok(mut guard) = self.recent.lock() {
+                guard.push(r);
+                while guard.len() > 500 {
+                    guard.remove(0);
                 }
             }
         }
-        Ok(())
+        
+        match self.sender.send(event) {
+            Ok(receiver_count) => {
+                let elapsed = start.elapsed();
+                tracing::debug!(
+                    "Published event to {} subscribers (latency: {:?})",
+                    receiver_count,
+                    elapsed
+                );
+                if receiver_count == 0 {
+                    tracing::debug!("Published event but no subscribers currently connected");
+                }
+                Ok(())
+            }
+            Err(_) => {
+                let elapsed = start.elapsed();
+                tracing::warn!("Failed to publish event: broadcast channel closed (latency: {:?})", elapsed);
+                Err(EventBusError::ChannelClosed)
+            }
+        }
     }
 
     fn subscribe(&self, filter: TrafficFilter) -> broadcast::Receiver<TrafficEvent> {
+        let start = std::time::Instant::now();
+        
         // Register the filter for --filters reporting.
         if let Ok(mut f) = self.filters.lock() {
             f.push(filter);
         }
-        self.sender.subscribe()
+        let rx = self.sender.subscribe();
+        let elapsed = start.elapsed();
+        tracing::debug!(
+            "New subscriber registered; total subscribers = {} (setup latency: {:?})",
+            self.sender.receiver_count(),
+            elapsed
+        );
+        rx
     }
 
     fn subscriber_count(&self) -> usize {
-        self.sender.receiver_count()
+        // Subtract 1 for the internal receiver that keeps the channel alive
+        // This gives us the count of *external* subscribers only
+        self.sender.receiver_count().saturating_sub(1)
     }
 }
 
@@ -188,6 +240,10 @@ mod tests {
     fn test_event_count_diagnostics() {
         let bus = BroadcastEventBus::new(16);
         assert_eq!(bus.event_count(), 0);
+        
+        // Need a subscriber before publish (tokio broadcast returns Err when rx_cnt == 0)
+        let _rx = bus.subscribe(TrafficFilter::default());
+        
         bus.publish(TrafficEvent::CaptureDropped {
             reason: "test".to_string(),
             count: 1,
@@ -201,6 +257,10 @@ mod tests {
         let bus = BroadcastEventBus::new(16);
         let events = bus.latest_events(20);
         assert!(events.is_empty());
+        
+        // Need a subscriber before publish
+        let _rx = bus.subscribe(TrafficFilter::default());
+        
         for i in 0..5u64 {
             let ev = TrafficEvent::ConnectionEstablished {
                 conn: crate::models::ConnectionKey {
