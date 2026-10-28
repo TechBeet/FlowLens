@@ -825,7 +825,11 @@ fn draw_rows(
     expanded: &mut Option<usize>,
     scroll_to: Option<usize>,
 ) {
-    let max_rows = 600usize;
+    // P2-1: Virtual scrolling — calculate max rows from actual available height
+    // Each row is ROW_H (28px) + 1px border/bottom space ≈ 29px
+    let row_height = ROW_H + 2.0_f32;
+    let max_rows = (ui.available_height() / row_height).ceil() as usize;
+    let max_rows = max_rows.max(50); // at least 50 rows to avoid empty view
     let start = filtered.len().saturating_sub(max_rows);
     let visible = &filtered[start..];
     for (vi, &ri) in visible.iter().enumerate() {
