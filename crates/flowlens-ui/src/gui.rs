@@ -218,6 +218,9 @@ pub struct GuiFrontend {
     #[allow(dead_code)]
     context_row: Option<usize>,
     clipboard: Arc<Mutex<String>>,
+    /// Snapshot index of the row that should be scrolled into view on the next
+    /// frame. Set by keyboard navigation (Up/Down), consumed by `draw_rows`.
+    scroll_to: Option<usize>,
 }
 
 impl Default for GuiFrontend {
@@ -236,6 +239,7 @@ impl Default for GuiFrontend {
             expanded: None,
             context_row: None,
             clipboard: Arc::new(Mutex::new(String::new())),
+            scroll_to: None,
         }
     }
 }
@@ -653,7 +657,16 @@ impl eframe::App for FlowLensApp {
                         }
                     });
                     ui.separator();
-                    draw_rows(ui, &p, &snap, &filtered, sel, &mut self.frontend.selected, &mut self.frontend.expanded);
+                    draw_rows(
+            ui,
+            &p,
+            &snap,
+            &filtered,
+            sel,
+            &mut self.frontend.selected,
+            &mut self.frontend.expanded,
+            self.frontend.scroll_to.take(),
+        );
                 });
             });
 
@@ -753,6 +766,7 @@ fn draw_rows(
     sel: Option<usize>,
     selected: &mut Option<usize>,
     expanded: &mut Option<usize>,
+    scroll_to: Option<usize>,
 ) {
     let max_rows = 600usize;
     let start = filtered.len().saturating_sub(max_rows);
@@ -813,6 +827,10 @@ fn draw_rows(
             } else {
                 *expanded = Some(fi);
             }
+        }
+        // Auto-scroll if this row should be brought into view
+        if scroll_to == Some(ri) {
+            ui.scroll_to_rect(rect, Some(egui::Align::Center));
         }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(COL_GAP, 0.0);
