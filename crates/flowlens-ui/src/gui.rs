@@ -781,7 +781,8 @@ fn draw_rows(
             egui::Stroke::new(1.0_f32, p.border_color()),
         );
         // Hover highlight (only when the row is not already selected).
-        let response = ui.interact(rect, Id::new(ri), Sense::click());
+        // Note: Sense::click() implies hover in egui, but we use union for clarity.
+        let response = ui.interact(rect, Id::new(ri), Sense::click() | Sense::hover());
         if !is_sel && response.hovered() {
             ui.painter().rect_filled(rect, 0.0, p.hover_bg());
         }
