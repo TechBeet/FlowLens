@@ -153,6 +153,28 @@ impl Palette {
         self.hover_bg
     }
 }
+// ---------------------------------------------------------------------------
+// Separator helpers: draw vertical/horizontal lines using palette border colour
+// ---------------------------------------------------------------------------
+/// Draw a vertical separator line using the palette's border colour.
+fn sep_vline(ui: &mut egui::Ui, p: &Palette) {
+    let rect = ui.available_rect_before_wrap();
+    ui.painter().vline(
+        rect.max.x,
+        rect.min.y..=rect.max.y,
+        egui::Stroke::new(1.0_f32, p.border_color()),
+    );
+}
+
+/// Draw a horizontal separator line using the palette's border colour.
+fn sep_hline(ui: &mut egui::Ui, p: &Palette) {
+    let rect = ui.available_rect_before_wrap();
+    ui.painter().hline(
+        rect.min.x..=rect.max.x,
+        rect.max.y,
+        egui::Stroke::new(1.0_f32, p.border_color()),
+    );
+}
 
 // ---------------------------------------------------------------------------
 // Sorting & column layout state
@@ -475,7 +497,9 @@ impl eframe::App for FlowLensApp {
                         .color(p.text_dim)
                         .size(12.0),
                 );
-                ui.separator();
+                // Custom separator: vertical line drawn with the palette border colour
+                // so it matches every other outline in the theme.
+                sep_vline(ui, &p);
                 let running = self.frontend.running.load(Ordering::SeqCst);
                 ui.label(
                     RichText::new(if running {
@@ -486,7 +510,8 @@ impl eframe::App for FlowLensApp {
                     .color(if running { p.ok } else { p.text_muted })
                     .size(12.0),
                 );
-                ui.separator();
+                // Custom separator: vertical line drawn with the palette border colour
+                sep_vline(ui, &p);
                 ui.label(
                     RichText::new(format!(
                         "\u{4E8B}\u{4EF6} {} \u{00B7} \u{7B5B}\u{9009} {}",
@@ -551,7 +576,8 @@ impl eframe::App for FlowLensApp {
                             .background_color(p.bg_input)
                             .margin(egui::Margin::symmetric(6.0, 4.0)),
                     );
-                    ui.separator();
+                    // Custom separator: vertical line drawn with the palette border colour
+                    sep_vline(ui, &p);
                     // 预设筛选按钮
                     let presets: [(&str, &str, &str); 5] = [
                         ("HTTP", "http_request", "只显示 HTTP 请求"),
@@ -568,7 +594,8 @@ impl eframe::App for FlowLensApp {
                     if ui.small_button("清除").on_hover_text("清空筛选条件").clicked() {
                         self.frontend.filter.clear();
                     }
-                    ui.separator();
+                    // Custom separator: vertical line drawn with the palette border colour
+                    sep_vline(ui, &p);
                     ui.label(
                         RichText::new(format!("{}/{}", filtered.len(), snap.len()))
                             .color(p.accent)
@@ -679,7 +706,8 @@ impl eframe::App for FlowLensApp {
                             ui.add_space(COL_GAP);
                         }
                     });
-                    ui.separator();
+                    // Custom separator: horizontal line drawn with the palette border colour
+                    sep_hline(ui, &p);
                     draw_rows(
             ui,
             &p,
