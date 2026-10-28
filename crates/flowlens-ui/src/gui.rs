@@ -154,7 +154,7 @@ impl Palette {
 // ---------------------------------------------------------------------------
 // Sorting & column layout state
 // ---------------------------------------------------------------------------
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SortKey { Time, Type, Method, Status, Size }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortDir { Asc, Desc }
@@ -758,6 +758,11 @@ fn draw_rows(
     let start = filtered.len().saturating_sub(max_rows);
     let visible = &filtered[start..];
     for (vi, &ri) in visible.iter().enumerate() {
+        // Bounds guard: the snapshot may shrink between frames (buffer drain),
+        // leaving stale indices in `filtered`. Skip rather than panic on OOB.
+        if ri >= snap.len() {
+            continue;
+        }
         let fi = start + vi; // index within the filtered list
         let r = &snap[ri];
         let is_sel = sel == Some(ri);
@@ -782,7 +787,19 @@ fn draw_rows(
         );
         // Hover highlight (only when the row is not already selected).
         // Note: Sense::click() implies hover in egui, but we use union for clarity.
-        let response = ui.interact(rect, Id::new(ri), Sense::click() | Sense::hover());
+        // CRITICAL: Use stable, content-derived ID to prevent mouse state corruption
+        // when snapshot indices shift due to buffer draining. The ID combines the
+        // snapshot index with immutable row content (timestamp, addresses, size) so
+        // egui's widget state cache correctly tracks the same logical row across frames.
+        let stable_row_id = Id::new((
+            "row",
+            ri,
+            r.timestamp,
+            &r.src_addr,
+            &r.dst_addr,
+            r.body_size,
+        ));
+        let response = ui.interact(rect, stable_row_id, Sense::click() | Sense::hover());
         if !is_sel && response.hovered() {
             ui.painter().rect_filled(rect, 0.0, p.hover_bg());
         }
