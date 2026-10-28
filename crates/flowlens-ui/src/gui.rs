@@ -547,7 +547,9 @@ impl eframe::App for FlowLensApp {
                             )
                             .color(p.text_dim))
                             .desired_width(360.0)
-                            .text_color(p.text),
+                            .text_color(p.text)
+                            .background_color(p.bg_input)
+                            .margin(egui::Margin::symmetric(6.0, 4.0)),
                     );
                     ui.separator();
                     // 预设筛选按钮
