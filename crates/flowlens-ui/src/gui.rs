@@ -454,6 +454,10 @@ struct FlowLensApp { frontend: GuiFrontend }
 
 impl eframe::App for FlowLensApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // P1-4: DPI zoom factor support - respect system DPI scaling
+        let zoom_factor = ctx.pixels_per_point().clamp(0.8, 2.5);
+        ctx.set_zoom_factor(zoom_factor);
+
         self.frontend.refresh_snapshot();
         let snap = self.frontend.snapshot.lock().unwrap().clone();
         let filtered = self.frontend.filtered_indices(&snap, &self.frontend.filter);
@@ -926,7 +930,7 @@ impl UiFrontend for GuiFrontend {
             "\u{6D41}\u{5149} - \u{7F51}\u{7EDC}\u{6D41}\u{91CF}\u{5206}\u{6790}\u{5668}",
             eframe::NativeOptions {
                 viewport: egui::ViewportBuilder::default()
-                    .with_inner_size((1280.0, 768.0))
+                    .with_inner_size((1920.0, 1200.0))
                     .with_min_inner_size((900.0, 500.0)),
                 ..Default::default()
             },
