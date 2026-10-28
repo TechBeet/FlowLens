@@ -36,6 +36,7 @@ pub struct Palette {
     pub bg_row_a: egui::Color32,
     pub bg_row_b: egui::Color32,
     pub bg_header: egui::Color32,
+    pub bg_input: egui::Color32,
     pub accent: egui::Color32,
     pub sel_bg: egui::Color32,
     pub hover_bg: egui::Color32,
@@ -58,6 +59,7 @@ impl Palette {
                 bg_row_a: egui::Color32::from_rgb(0x1E, 0x1E, 0x1E),
                 bg_row_b: egui::Color32::from_rgb(0x25, 0x25, 0x26),
                 bg_header: egui::Color32::from_rgb(0x2D, 0x2D, 0x30),
+                bg_input: egui::Color32::from_rgb(0x3C, 0x3C, 0x3C),
                 accent: egui::Color32::from_rgb(0x56, 0x9C, 0xD6),
                 sel_bg: egui::Color32::from_rgb(0x09, 0x47, 0x71),
                 hover_bg: egui::Color32::from_rgb(0x2A, 0x2D, 0x2E),
@@ -76,6 +78,7 @@ impl Palette {
                 bg_row_a: egui::Color32::from_rgb(0xFF, 0xFF, 0xFF),
                 bg_row_b: egui::Color32::from_rgb(0xF5, 0xF5, 0xF6),
                 bg_header: egui::Color32::from_rgb(0xE8, 0xE8, 0xE9),
+                bg_input: egui::Color32::from_rgb(0xFF, 0xFF, 0xFF),
                 accent: egui::Color32::from_rgb(0x0F, 0x4C, 0x81),
                 sel_bg: egui::Color32::from_rgb(0xD0, 0xE4, 0xF7),
                 hover_bg: egui::Color32::from_rgb(0xE6, 0xE6, 0xE8),
@@ -434,6 +437,24 @@ impl eframe::App for FlowLensApp {
         let filtered = self.frontend.filtered_indices(&snap, &self.frontend.filter);
         let sel = self.frontend.selected;
         let p = Palette::new(self.frontend.theme);
+
+        // Apply custom visuals so egui's built-in widgets match our palette
+        let mut visuals = egui::Visuals::dark();
+        visuals.window_rounding = egui::Rounding::same(4.0);
+        visuals.panel_fill = p.bg_app;
+        visuals.window_fill = p.bg_panel;
+        visuals.extreme_bg_color = p.bg_app;
+        visuals.widgets.noninteractive.bg_fill = p.bg_input;
+        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, p.border_color());
+        visuals.widgets.hovered.bg_fill = p.hover_bg;
+        visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, p.accent);
+        visuals.widgets.active.bg_fill = p.hover_bg;
+        visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, p.accent);
+        visuals.selection.bg_fill = p.sel_bg;
+        visuals.selection.stroke = egui::Stroke::new(1.0_f32, p.accent);
+        visuals.faint_bg_color = p.bg_row_b;
+        visuals.widgets.noninteractive.weak_bg_fill = p.bg_input;
+        ctx.set_visuals(visuals);
 
         // ===== Top bar =====
         egui::TopBottomPanel::top("header").frame(
