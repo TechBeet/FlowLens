@@ -454,9 +454,11 @@ struct FlowLensApp { frontend: GuiFrontend }
 
 impl eframe::App for FlowLensApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // P1-4: DPI zoom factor support - respect system DPI scaling
-        let zoom_factor = ctx.pixels_per_point().clamp(0.8, 2.5);
-        ctx.set_zoom_factor(zoom_factor);
+        // P1-4: DPI scaling is handled automatically by egui/eframe.
+        // We don't call set_zoom_factor() here because pixels_per_point() already
+        // incorporates the system DPI, and setting it back causes a feedback loop.
+        // Instead, we ensure fonts and layout are responsive by using em-based sizes
+        // and allowing ScrollArea to scale naturally.
 
         self.frontend.refresh_snapshot();
         let snap = self.frontend.snapshot.lock().unwrap().clone();
