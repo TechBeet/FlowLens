@@ -7,6 +7,7 @@
 //! - SSE event parser
 
 pub mod http2;
+pub mod grpc;
 
 use std::collections::HashMap;
 
