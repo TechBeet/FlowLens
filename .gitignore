@@ -52,6 +52,7 @@ ui/node_modules/
 ui/dist/
 ui/.vite/
 ui/src-tauri/target/
+ui/src-tauri/gen/
 
 # Local Cargo home / registry cache (created by sandboxed builds)
 .cargo-home/
