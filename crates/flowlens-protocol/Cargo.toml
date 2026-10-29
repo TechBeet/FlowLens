@@ -12,3 +12,5 @@ tracing = "0.1"
 thiserror = "1"
 anyhow = "1"
 httparse = "1"
+h2 = { version = "0.4", features = ["stream"] }
+hpack = "0.3"

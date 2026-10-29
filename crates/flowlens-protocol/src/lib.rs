@@ -2,8 +2,11 @@
 //!
 //! This module provides:
 //! - HTTP/1.1 parser (using httparse)
+//! - HTTP/2 frame parser (using hpack for header decompression)
 //! - WebSocket frame parser
 //! - SSE event parser
+
+pub mod http2;
 
 use std::collections::HashMap;
 
