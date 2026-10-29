@@ -1,6 +1,6 @@
 //! HAR 1.2 exporter for FlowLens
 
-use flowlens_core::models::{HttpVersion, TrafficSession};
+use flowlens_core::models::{HttpVersion, TrafficRow, TrafficSession};
 use serde::{Deserialize, Serialize};
 use chrono::TimeZone;
 
@@ -228,6 +228,64 @@ impl HarExporter {
         };
 
         serde_json::to_string_pretty(&HarLog { log })
+    }
+
+    /// Export flattened traffic rows to a HAR 1.2 JSON string.
+    pub fn export_rows(rows: &[TrafficRow]) -> Result<String, serde_json::Error> {
+        let mut sessions = Vec::with_capacity(rows.len());
+        for r in rows {
+            let status_code: u16 = r.status.parse().unwrap_or(0);
+            let req = flowlens_core::models::HttpRequest {
+                method: r.method.clone(),
+                url: r.path.clone(),
+                path: r.path.clone(),
+                request_line_version: HttpVersion::Http11,
+                headers: vec![],
+                body: None,
+                body_size: 0,
+                timestamp: r.timestamp,
+            };
+            let resp = flowlens_core::models::HttpResponse {
+                status_code,
+                status_text: String::new(),
+                version: HttpVersion::Http11,
+                headers: vec![],
+                body: None,
+                body_size: r.body_size,
+                timestamp: r.timestamp,
+            };
+            sessions.push(TrafficSession {
+                session_id: flowlens_core::models::SessionId(0),
+                conn: flowlens_core::models::ConnectionKey {
+                    src_addr: r.src_addr.parse().unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
+                    dst_addr: r.dst_addr.parse().unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
+                    protocol: flowlens_core::models::TransportProtocol::Tcp,
+                    connection_id: 0,
+                    timestamp: r.timestamp,
+                    interface_guid: None,
+                },
+                process: flowlens_core::models::ProcessInfo {
+                    pid: 0,
+                    name: "export".to_string(),
+                    exe_path: None,
+                    user_sid: String::new(),
+                    arch: flowlens_core::models::ProcessArch::X64,
+                    match_quality: flowlens_core::models::MatchQuality::Unspecified,
+                },
+                tls: None,
+                protocol: flowlens_core::models::ProtocolKind::Http1,
+                http_request: Some(req),
+                http_response: Some(resp),
+                websocket_frames: vec![],
+                sse_events: vec![],
+                grpc_call: None,
+                started_at: r.timestamp,
+                ended_at: Some(r.timestamp),
+                bytes_sent: 0,
+                bytes_received: r.body_size as u64,
+            });
+        }
+        Self::export_sessions(&sessions)
     }
 
     /// Export to a file.

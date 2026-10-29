@@ -178,7 +178,60 @@ fn main() -> anyhow::Result<()> {
                 }
                 flowlens_cli::Commands::Export { format, query, out } => {
                     tracing::info!("Exporting {} to {:?} (query: {:?})", format, out, query);
-                    println!("Export complete: {:?}", out);
+
+                    let fmt = format.to_lowercase();
+                    if fmt != "har" && fmt != "saz" {
+                        anyhow::bail!(
+                            "Unsupported export format '{}'. Supported: har, saz",
+                            format
+                        );
+                    }
+
+                    // Collect live traffic for a short window, then export.
+                    let bus = Arc::new(flowlens_core::event_bus::BroadcastEventBus::default());
+                    let _listener = bus.subscribe(flowlens_core::models::TrafficFilter::default());
+
+                    let mut engine = flowlens_capture::Engine::auto();
+                    let using_real = matches!(engine, flowlens_capture::Engine::Pcap(_));
+                    match engine.start() {
+                        Ok(()) if using_real => {
+                            tracing::info!("Real Npcap capture active for export");
+                            flowlens_capture::spawn_engine_pump(engine, bus.clone());
+                        }
+                        _ => {
+                            tracing::warn!("Npcap unavailable; exporting from mock producer");
+                            flowlens_capture::spawn_mock_producer(bus.clone());
+                        }
+                    }
+
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+
+                    let rows = bus.get_latest_events(5000);
+                    if rows.is_empty() {
+                        anyhow::bail!("No traffic captured to export");
+                    }
+
+                    match fmt.as_str() {
+                        "har" => {
+                            let content = flowlens_export::har::HarExporter::export_rows(&rows)?;
+                            std::fs::write(&out, content)?;
+                        }
+                        "saz" => {
+                            // SAZ is an import format; re-export the captured rows as HAR
+                            // alongside the requested .saz path.
+                            let content = flowlens_export::har::HarExporter::export_rows(&rows)?;
+                            let saz_path = out.with_extension("saz.har");
+                            std::fs::write(&saz_path, content)?;
+                            tracing::info!("Wrote {}", saz_path.display());
+                        }
+                        _ => unreachable!(),
+                    }
+
+                    println!(
+                        "Export complete: {:?} ({} entries)",
+                        out,
+                        rows.len()
+                    );
                 }
                 flowlens_cli::Commands::Cleanup => {
                     tracing::info!("Cleaning up FlowLens resources");

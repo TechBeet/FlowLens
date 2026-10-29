@@ -1477,6 +1477,7 @@ dependencies = [
  "flowlens-capture",
  "flowlens-cli",
  "flowlens-core",
+ "flowlens-export",
  "flowlens-protocol",
  "flowlens-ui",
  "tokio",

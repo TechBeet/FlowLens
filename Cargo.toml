@@ -12,6 +12,7 @@ flowlens-cli = { path = "crates/flowlens-cli" }
 flowlens-capture = { path = "crates/flowlens-capture" }
 flowlens-protocol = { path = "crates/flowlens-protocol" }
 flowlens-ui = { path = "crates/flowlens-ui" }
+flowlens-export = { path = "crates/flowlens-export" }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
