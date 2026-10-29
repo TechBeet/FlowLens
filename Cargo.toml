@@ -13,6 +13,8 @@ flowlens-capture = { path = "crates/flowlens-capture" }
 flowlens-protocol = { path = "crates/flowlens-protocol" }
 flowlens-ui = { path = "crates/flowlens-ui" }
 flowlens-export = { path = "crates/flowlens-export" }
+flowlens-storage = { path = "crates/flowlens-storage" }
+flowlens-mcp = { path = "crates/flowlens-mcp" }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

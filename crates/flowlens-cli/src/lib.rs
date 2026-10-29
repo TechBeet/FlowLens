@@ -50,6 +50,18 @@ pub enum Commands {
         /// MCP server port
         #[arg(short, long, default_value = "5000")]
         port: u16,
+        /// Capture duration in seconds (0 = run until Ctrl+C)
+        #[arg(long, default_value = "0")]
+        duration: u64,
+        /// SQLite database file to persist sessions into
+        #[arg(long, default_value = "flowlens.db")]
+        db: PathBuf,
+        /// Force mock mode (skip Npcap/admin, useful for testing)
+        #[arg(long)]
+        mock: bool,
+        /// Print each captured event to stdout
+        #[arg(long)]
+        verbose: bool,
     },
     /// Export captured sessions
     Export {

@@ -6,13 +6,13 @@
 实现基础抓包能力，使用 Npcap 作为捕获引擎，支持 HTTP/1.1 和 TLS 1.2 解密。
 
 ### 功能清单
-- [ ] **flowlens-cli**: 命令行入口、管理员权限检查、安装驱动
-- [ ] **flowlens-capture**: Npcap 用户态捕获引擎
-- [ ] **flowlens-attribution**: ETW + IP Helper 进程归属
-- [ ] **flowlens-tls**: rcgen CA + rustls MITM 解密
-- [ ] **flowlens-protocol**: HTTP/1.1 解析 (httparse)
-- [ ] **flowlens-storage**: SQLite 存储
-- [ ] **flowlens-ui**: ratatui TUI 界面
+- [x] **flowlens-cli**: 命令行入口、管理员权限检查、安装驱动
+- [x] **flowlens-capture**: Npcap 用户态捕获引擎
+- [x] **flowlens-attribution**: ETW + IP Helper 进程归属
+- [x] **flowlens-tls**: rcgen CA + rustls MITM 解密
+- [x] **flowlens-protocol**: HTTP/1.1 解析 (httparse)
+- [x] **flowlens-storage**: SQLite 存储
+- [x] **flowlens-ui**: ratatui TUI 界面
 
 ### 可验收标准
 1. 启动 FlowLens 后能看到所有 HTTP 流量
@@ -34,13 +34,13 @@
 扩展协议解析能力，支持 HTTP/2、WebSocket、SSE、gRPC，并增加导出功能。
 
 ### 功能清单
-- [ ] HTTP/2 解析 (h2 crate)
-- [ ] WebSocket 帧解析 (tungstenite)
-- [ ] SSE 事件流解析
-- [ ] gRPC 请求/响应聚合 (h2 + prost)
-- [ ] HAR 导出
-- [ ] SAZ 导入 (部分兼容)
-- [ ] 高级过滤器: 时间范围、URL 包含、大小范围
+- [x] HTTP/2 解析 (h2 crate)
+- [x] WebSocket 帧解析 (tungstenite)
+- [x] SSE 事件流解析
+- [x] gRPC 请求/响应聚合 (h2 + prost)
+- [x] HAR 导出
+- [x] SAZ 导入 (部分兼容)
+- [x] 高级过滤器：时间范围、URL 包含、大小范围
 
 ### 可验收标准
 1. 能正确解析 WebSocket 双向通信
@@ -60,12 +60,12 @@
 实现 MCP 协议服务器，允许 Claude Code 等 AI 代理查询流量数据。
 
 ### 功能清单
-- [ ] flowlens-mcp crate
-- [ ] `get_sessions` 工具
-- [ ] `get_request` 工具
-- [ ] `aggregate_by_pid` 工具
-- [ ] `aggregate_by_host` 工具
-- [ ] JSON-RPC 通信
+- [x] flowlens-mcp crate
+- [x] `get_sessions` 工具
+- [x] `get_request` 工具
+- [x] `aggregate_by_pid` 工具
+- [x] `aggregate_by_host` 工具
+- [x] JSON-RPC 通信
 
 ### 可验收标准
 1. Claude Code 可以调用 MCP 工具查询本机流量
@@ -128,4 +128,4 @@ Phase 4 ────────────────────────
 
 ---
 
-*Roadmap last updated: 2026/10/14*
+*Roadmap last updated: 2026/10/30*
