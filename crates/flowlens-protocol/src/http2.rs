@@ -93,7 +93,7 @@ impl Http2Parser {
         let mut body = payload;
         if flags & 0x08 != 0 && !payload.is_empty() {
             let pad_len = payload[0] as usize;
-            if 1 + pad_len <= payload.len() {
+            if pad_len < payload.len() {
                 body = &payload[1..payload.len() - pad_len];
             } else {
                 return None;
