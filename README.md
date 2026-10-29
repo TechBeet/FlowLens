@@ -14,7 +14,7 @@ A native Rust HTTP/HTTPS packet capture and debugging tool with process attribut
 
 - **Proxy-less**: Captures traffic directly via Npcap, no system proxy needed
 - **Process Attribution**: PID, process name, EXE path attribution via IP Helper API
-- **Multi-Protocol**: HTTP/1.1, WebSocket, SSE parsing (HTTP/2 and gRPC planned)
+- **Multi-Protocol**: HTTP/1.1, HTTP/2, WebSocket, SSE and gRPC parsing
 - **Multiple Frontends**: Terminal UI (ratatui), native GUI (egui), and an optional Svelte/Tauri desktop shell
 - **MCP Server**: AI agents can query captured traffic
 - **Portable**: Self-contained, no installation required
@@ -33,22 +33,23 @@ API and data model exist but behaviour is incomplete.
 | HTTP/1.1 parsing | ✅ Implemented | `httparse`-based request/response |
 | WebSocket framing | ✅ Implemented | Frame parse + opcode classification |
 | SSE parsing | ✅ Implemented | Event stream chunking |
-| HTTP/2 parsing | ❌ Planned | Not implemented |
-| gRPC parsing | ❌ Planned | Not implemented |
+| HTTP/2 parsing | ✅ Implemented | HTTP/2 frame parser with HPACK header decompression |
+| gRPC parsing | ✅ Implemented | 5-byte gRPC frame parser with incremental buffering |
 | CA generation / leaf signing | ✅ Implemented | `rcgen` + `rustls` |
 | TLS MITM decryption | ⚠️ Partial | CA lifecycle works; `decrypt_stream` is currently a passthrough stub |
 | In-memory storage | ✅ Implemented | Ring-buffer backed |
-| SQLite storage | ⚠️ Partial | Schema + connection work; `insert_session`/`get_session` are `unimplemented!()` |
+| SQLite storage | ✅ Implemented | Full CRUD: insert, get, list, delete, query with filters (pid, host, protocol) |
 | HAR export | ✅ Implemented | HAR 1.2 compatible |
-| SAZ / PCAP export | ❌ Planned | Not implemented |
+| SAZ import | ✅ Implemented | Fiddler `.saz` archives; extracts raw HTTP request/response pairs |
 | MCP server | ⚠️ Partial | Core tools present; transport hardening pending |
 | TUI (ratatui) | ✅ Implemented | Live event stream, filters, selection |
 | GUI (egui) | ✅ Implemented | Light/dark themes, filtering, row detail |
 | Svelte/Tauri shell | ⚠️ Partial | UI complete; backend wiring in progress |
 | WFP kernel driver | ❌ Planned | Design only, no driver shipped |
 
-> ⚠️ **Do not rely on TLS decryption or SQLite persistence in production yet** —
-> both are partially implemented. See [docs/roadmap.md](docs/roadmap.md).
+> ⚠️ **TLS MITM decryption is still a passthrough stub** — the CA lifecycle works,
+> but captured TLS payloads are not yet decrypted. See
+> [docs/roadmap.md](docs/roadmap.md).
 
 ## Platform Support
 
