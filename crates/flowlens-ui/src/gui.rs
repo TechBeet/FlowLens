@@ -462,8 +462,11 @@ struct FlowLensApp { frontend: GuiFrontend }
 
 impl eframe::App for FlowLensApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // P1-4: Respect DPI scaling.
-        ctx.set_zoom_factor(ctx.pixels_per_point());
+        // P1-4: DPI scaling.
+        // egui already scales the UI by `pixels_per_point()` internally, so the
+        // zoom factor must stay at 1.0. Setting it to `pixels_per_point()`
+        // would apply the system DPI scale twice (e.g. 150% -> 225%).
+        ctx.set_zoom_factor(1.0);
 
         self.frontend.refresh_snapshot();
         let snap_arc = Arc::clone(&self.frontend.snapshot);
