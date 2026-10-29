@@ -14,8 +14,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use flowlens_core::models::{SessionId, TrafficSession};
-use sqlx::sqlite::SqlitePoolOptions;
-use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::{Row, SqlitePool};
 
 /// Storage engine trait — all storage backends implement this.
 pub trait StorageEngine: Send + Sync {
@@ -46,6 +46,58 @@ pub struct StorageQuery {
 /// Current schema version. Bump this when the schema changes.
 pub const SCHEMA_VERSION: i64 = 2;
 
+/// A flattened row of session data, ready for insertion into the `sessions` table.
+struct SessionRow {
+    start_time: i64,
+    end_time: Option<i64>,
+    src_addr: String,
+    src_port: i64,
+    dst_addr: String,
+    dst_port: i64,
+    protocol: String,
+    connection_id: i64,
+    pid: i64,
+    name: String,
+    user_sid: String,
+    arch: String,
+    match_quality: String,
+    tls: i64,
+    http_method: Option<String>,
+    http_url: Option<String>,
+    http_status: Option<i64>,
+    bytes_sent: i64,
+    bytes_received: i64,
+    /// The complete session serialized as JSON so nested structures
+    /// (headers, bodies, TLS info, WS frames, SSE events) round-trip exactly.
+    event_data: String,
+}
+
+/// Flatten a session into its database columns.
+fn session_to_row(session: &TrafficSession) -> SessionRow {
+    SessionRow {
+        start_time: session.started_at,
+        end_time: session.ended_at,
+        src_addr: session.conn.src_addr.ip().to_string(),
+        src_port: session.conn.src_addr.port() as i64,
+        dst_addr: session.conn.dst_addr.ip().to_string(),
+        dst_port: session.conn.dst_addr.port() as i64,
+        protocol: format!("{:?}", session.conn.protocol),
+        connection_id: session.conn.connection_id as i64,
+        pid: session.process.pid as i64,
+        name: session.process.name.clone(),
+        user_sid: session.process.user_sid.clone(),
+        arch: format!("{:?}", session.process.arch),
+        match_quality: format!("{:?}", session.process.match_quality),
+        tls: if session.tls.is_some() { 1 } else { 0 },
+        http_method: session.http_request.as_ref().map(|r| r.method.clone()),
+        http_url: session.http_request.as_ref().map(|r| r.url.clone()),
+        http_status: session.http_response.as_ref().map(|r| r.status_code as i64),
+        bytes_sent: session.bytes_sent as i64,
+        bytes_received: session.bytes_received as i64,
+        event_data: serde_json::to_string(session).unwrap_or_else(|_| "{}".to_string()),
+    }
+}
+
 /// In-memory storage engine for Phase 1 MVP and testing.
 pub struct InMemoryStorage {
     sessions: std::sync::RwLock<std::collections::HashMap<SessionId, TrafficSession>>,
@@ -70,26 +122,56 @@ impl Default for InMemoryStorage {
 /// SQLite storage engine for persistent session storage.
 pub struct SqliteStorage {
     pool: Arc<SqlitePool>,
+    /// Dedicated runtime used to drive the async SQLx calls from the
+    /// synchronous `StorageEngine` trait methods. Kept separate so that
+    /// calling those methods from a non-async context never nests runtimes.
+    rt: Arc<tokio::runtime::Runtime>,
 }
 
 impl SqliteStorage {
     /// Create a new SQLite storage backend.
     pub async fn new(path: &Path) -> anyhow::Result<Self> {
-        let db_url = format!("sqlite://{}", path.display());
+        // Ensure the parent directory exists so SQLite can create the file.
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+
+        // Use `SqliteConnectOptions` rather than a URL string: SQLite URLs
+        // mishandle Windows drive letters (the `C:` gets parsed as a host).
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true);
+
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
-            .connect(&db_url)
+            .connect_with(options)
             .await?;
+        
+        // Create a dedicated current-thread runtime for sync wrapper methods.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+
         let storage = Self {
             pool: Arc::new(pool),
+            rt: Arc::new(rt),
         };
-        storage.create_tables()?;
+        // Migrate directly on the caller's runtime: calling the synchronous
+        // `create_tables()` here would `block_on` inside an active runtime.
+        migrate(&storage.pool).await?;
         Ok(storage)
     }
 
     /// Get the inner pool for testing.
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    /// Get the dedicated runtime for testing.
+    pub fn runtime(&self) -> &tokio::runtime::Runtime {
+        &self.rt
     }
 }
 
@@ -208,31 +290,139 @@ impl StorageEngine for InMemoryStorage {
 
 impl StorageEngine for SqliteStorage {
     fn create_tables(&self) -> anyhow::Result<()> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        rt.block_on(migrate(&self.pool))?;
+        self.rt.block_on(migrate(&self.pool))?;
         Ok(())
     }
 
-    fn insert_session(&self, _session: &TrafficSession) -> anyhow::Result<SessionId> {
-        unimplemented!("SQLite storage insert not yet implemented")
+    fn insert_session(&self, session: &TrafficSession) -> anyhow::Result<SessionId> {
+        let row = session_to_row(session);
+
+        let id = self.rt.block_on(async {
+            let mut conn = self.pool.acquire().await?;
+            sqlx::query(
+                "INSERT INTO sessions \
+                 (start_time, end_time, src_addr, src_port, dst_addr, dst_port, \
+                  protocol, connection_id, pid, process_name, user_sid, arch, \
+                  match_quality, tls, http_method, http_url, http_status, \
+                  bytes_sent, bytes_received, event_data) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(row.start_time)
+            .bind(row.end_time)
+            .bind(row.src_addr)
+            .bind(row.src_port)
+            .bind(row.dst_addr)
+            .bind(row.dst_port)
+            .bind(row.protocol)
+            .bind(row.connection_id)
+            .bind(row.pid)
+            .bind(row.name)
+            .bind(row.user_sid)
+            .bind(row.arch)
+            .bind(row.match_quality)
+            .bind(row.tls)
+            .bind(row.http_method)
+            .bind(row.http_url)
+            .bind(row.http_status)
+            .bind(row.bytes_sent)
+            .bind(row.bytes_received)
+            .bind(row.event_data)
+            .execute(&mut *conn)
+            .await?;
+
+            sqlx::query_scalar::<_, i64>("SELECT last_insert_rowid()")
+                .fetch_one(&mut *conn)
+                .await
+        })?;
+
+        Ok(SessionId(id as u64))
     }
 
-    fn get_session(&self, _id: SessionId) -> anyhow::Result<Option<TrafficSession>> {
-        unimplemented!("SQLite storage get not yet implemented")
+    fn get_session(&self, id: SessionId) -> anyhow::Result<Option<TrafficSession>> {
+        let data = self.rt.block_on(async {
+            sqlx::query_scalar::<_, String>("SELECT event_data FROM sessions WHERE id = ?")
+                .bind(id.0 as i64)
+                 .fetch_optional(self.pool.as_ref())
+                .await
+        })?;
+
+        let mut result = data.and_then(|d| serde_json::from_str::<TrafficSession>(&d).ok());
+        if let Some(s) = &mut result {
+            s.session_id = id;
+        }
+        Ok(result)
     }
 
     fn list_sessions(&self) -> anyhow::Result<Vec<TrafficSession>> {
-        Ok(vec![])
+        let rows: Vec<TrafficSession> = self.rt.block_on(async {
+            sqlx::query("SELECT id, event_data FROM sessions ORDER BY id")
+                .fetch_all(self.pool.as_ref())
+                .await
+                .map(|rs| {
+                    rs.into_iter()
+                        .filter_map(|row| -> Option<TrafficSession> {
+                            let id: i64 = row.try_get("id").ok()?;
+                            let data: String = row.try_get("event_data").ok()?;
+                            let mut s: TrafficSession = serde_json::from_str(&data).ok()?;
+                            s.session_id = SessionId(id as u64);
+                            Some(s)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        });
+
+        Ok(rows)
     }
 
-    fn delete_sessions(&self, _before: i64) -> anyhow::Result<u64> {
-        Ok(0)
+    fn delete_sessions(&self, before: i64) -> anyhow::Result<u64> {
+        let count = self.rt.block_on(async {
+            sqlx::query("DELETE FROM sessions WHERE start_time < ?")
+                .bind(before)
+                .execute(self.pool.as_ref())
+                .await
+                .map(|r| r.rows_affected() as u64)
+                .unwrap_or(0)
+        });
+
+        Ok(count)
     }
 
-    fn query_sessions(&self, _query: &StorageQuery) -> anyhow::Result<Vec<TrafficSession>> {
-        Ok(vec![])
+    fn query_sessions(&self, query: &StorageQuery) -> anyhow::Result<Vec<TrafficSession>> {
+        let rows = self.list_sessions()?;
+
+        let mut results: Vec<TrafficSession> = rows
+            .iter()
+            .filter(|s| {
+                if let Some(pid) = query.pid {
+                    if s.process.pid != pid {
+                        return false;
+                    }
+                }
+                if let Some(host) = &query.host {
+                    let dst = s.conn.dst_addr.to_string();
+                    if !dst.contains(host) {
+                        return false;
+                    }
+                }
+                if let Some(proto) = &query.protocol {
+                    let pk = format!("{:?}", s.protocol).to_lowercase();
+                    if pk != proto.to_lowercase() {
+                        return false;
+                    }
+                }
+                true
+            })
+            .cloned()
+            .collect();
+
+        if let Some(offset) = query.offset {
+            results = results.into_iter().skip(offset).collect();
+        }
+        if let Some(limit) = query.limit {
+            results.truncate(limit);
+        }
+        Ok(results)
     }
 }
 
@@ -242,6 +432,142 @@ mod tests {
     use flowlens_core::models::{
         ConnectionKey, MatchQuality, ProcessArch, ProcessInfo, TransportProtocol,
     };
+
+    /// Build a sample session for tests.
+    fn sample_session() -> TrafficSession {
+        TrafficSession {
+            session_id: SessionId(0),
+            conn: ConnectionKey {
+                src_addr: "127.0.0.1:12345".parse().unwrap(),
+                dst_addr: "8.8.8.8:53".parse().unwrap(),
+                protocol: TransportProtocol::Udp,
+                connection_id: 1,
+                timestamp: 0,
+                interface_guid: None,
+            },
+            process: ProcessInfo {
+                pid: 1234,
+                name: "test.exe".to_string(),
+                exe_path: None,
+                user_sid: String::new(),
+                arch: ProcessArch::X64,
+                match_quality: MatchQuality::Heuristic,
+            },
+            tls: None,
+            protocol: flowlens_core::models::ProtocolKind::Http1,
+            http_request: None,
+            http_response: None,
+            websocket_frames: Vec::new(),
+            sse_events: Vec::new(),
+            grpc_call: None,
+            started_at: 0,
+            ended_at: None,
+            bytes_sent: 0,
+            bytes_received: 0,
+        }
+    }
+
+    /// Create a temporary SQLite database for testing.
+    ///
+    /// The storage engine owns a dedicated runtime, so these tests must run
+    /// outside of any ambient Tokio runtime (i.e. plain `#[test]`).
+    fn temp_sqlite() -> (SqliteStorage, tempdir::TempDir) {
+        let dir = tempdir::TempDir::new("flowlens_storage_test").unwrap();
+        let path = dir.path().join("test.db");
+        let storage = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(SqliteStorage::new(&path))
+            .unwrap();
+        (storage, dir)
+    }
+
+    #[test]
+    fn test_sqlite_insert_and_get() {
+        let (storage, _dir) = temp_sqlite();
+        let session = sample_session();
+        let id = storage.insert_session(&session).unwrap();
+        assert!(id.0 > 0);
+
+        let got = storage.get_session(id).unwrap().expect("session must exist");
+        assert_eq!(got.session_id, id);
+        assert_eq!(got.process.pid, 1234);
+        assert_eq!(got.process.name, "test.exe");
+        assert_eq!(got.conn.connection_id, 1);
+    }
+
+    #[test]
+    fn test_sqlite_get_missing_returns_none() {
+        let (storage, _dir) = temp_sqlite();
+        assert!(storage.get_session(SessionId(9999)).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_sqlite_list_sessions() {
+        let (storage, _dir) = temp_sqlite();
+        storage.insert_session(&sample_session()).unwrap();
+        storage.insert_session(&sample_session()).unwrap();
+
+        let all = storage.list_sessions().unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_sqlite_delete_sessions() {
+        let (storage, _dir) = temp_sqlite();
+        let mut old = sample_session();
+        old.started_at = 100;
+        let mut new = sample_session();
+        new.started_at = 10_000;
+
+        storage.insert_session(&old).unwrap();
+        storage.insert_session(&new).unwrap();
+
+        // Delete everything older than 1000.
+        let deleted = storage.delete_sessions(1_000).unwrap();
+        assert_eq!(deleted, 1);
+
+        let remaining = storage.list_sessions().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].started_at, 10_000);
+    }
+
+    #[test]
+    fn test_sqlite_query_by_pid() {
+        let (storage, _dir) = temp_sqlite();
+        let mut a = sample_session();
+        a.process.pid = 100;
+        let mut b = sample_session();
+        b.process.pid = 200;
+
+        storage.insert_session(&a).unwrap();
+        storage.insert_session(&b).unwrap();
+
+        let q = StorageQuery {
+            pid: Some(200),
+            ..Default::default()
+        };
+        let found = storage.query_sessions(&q).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].process.pid, 200);
+    }
+
+    #[test]
+    fn test_sqlite_query_limit_and_offset() {
+        let (storage, _dir) = temp_sqlite();
+        for _ in 0..5 {
+            storage.insert_session(&sample_session()).unwrap();
+        }
+
+        let q = StorageQuery {
+            limit: Some(2),
+            offset: Some(1),
+            ..Default::default()
+        };
+        let found = storage.query_sessions(&q).unwrap();
+        assert_eq!(found.len(), 2);
+    }
 
     #[test]
     fn test_insert_and_get() {
