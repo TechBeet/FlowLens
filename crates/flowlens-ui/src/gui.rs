@@ -128,7 +128,7 @@ impl Palette {
     pub fn row_bg(&self, index: usize, selected: bool) -> egui::Color32 {
         if selected {
             self.sel_bg
-        } else if index % 2 == 0 {
+        } else if index.is_multiple_of(2) {
             self.bg_row_a
         } else {
             self.bg_row_b
@@ -644,7 +644,7 @@ impl eframe::App for FlowLensApp {
                                 row.path, row.src_addr,
                             ));
                             ui.add_space(4.0);
-                            ui.monospace(format!("{}", row.status));
+                            ui.monospace(row.status.to_string());
                         });
                     });
             }
