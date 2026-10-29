@@ -14,7 +14,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 mod lru_cache;
+mod recovery;
 pub use lru_cache::LruSessionCache;
+pub use recovery::RecoveryManager;
 
 use flowlens_core::models::{SessionId, TrafficSession};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};

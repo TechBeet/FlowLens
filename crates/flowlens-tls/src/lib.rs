@@ -1,5 +1,8 @@
 //! TLS MITM and certificate management for FlowLens
 
+pub mod concurrent;
+pub use concurrent::ConcurrentDecryptor;
+
 use std::sync::RwLock;
 
 use flowlens_core::models::{ConnectionKey, TlsVersion};
