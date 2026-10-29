@@ -386,7 +386,7 @@ impl StorageEngine for SqliteStorage {
                 .bind(before)
                 .execute(self.pool.as_ref())
                 .await
-                .map(|r| r.rows_affected() as u64)
+                .map(|r| r.rows_affected())
                 .unwrap_or(0)
         });
 
