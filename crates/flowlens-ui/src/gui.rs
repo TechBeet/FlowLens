@@ -17,6 +17,14 @@ const COL_SIZE: f32 = 84.0;
 const COL_ADDR: f32 = 160.0;
 const COL_GAP: f32 = 8.0;
 
+/// Named theme colours (replaces hard-coded RGB literals).
+pub const BG_APP_DARK: egui::Color32 = egui::Color32::from_rgb(0x1E, 0x1E, 0x1E);
+pub const BG_APP_LIGHT: egui::Color32 = egui::Color32::from_rgb(0xF9, 0xF9, 0xFA);
+pub const TEXT_DARK: egui::Color32 = egui::Color32::from_rgb(0xD4, 0xD4, 0xD4);
+pub const TEXT_LIGHT: egui::Color32 = egui::Color32::from_rgb(0x1E, 0x1E, 0x1E);
+pub const ACCENT_DARK: egui::Color32 = egui::Color32::from_rgb(0x56, 0x9C, 0xD6);
+pub const ACCENT_LIGHT: egui::Color32 = egui::Color32::from_rgb(0x00, 0x7A, 0xCC);
+
 // ---------------------------------------------------------------------------
 // Theme enum
 // ---------------------------------------------------------------------------
@@ -54,17 +62,17 @@ impl Palette {
     pub fn new(theme: Theme) -> Self {
         match theme {
             Theme::Dark => Self {
-                bg_app: egui::Color32::from_rgb(0x1E, 0x1E, 0x1E),
+                bg_app: BG_APP_DARK,
                 bg_panel: egui::Color32::from_rgb(0x25, 0x25, 0x26),
                 bg_row_a: egui::Color32::from_rgb(0x1E, 0x1E, 0x1E),
                 bg_row_b: egui::Color32::from_rgb(0x25, 0x25, 0x26),
                 bg_header: egui::Color32::from_rgb(0x2D, 0x2D, 0x30),
                 bg_input: egui::Color32::from_rgb(0x3C, 0x3C, 0x3C),
-                accent: egui::Color32::from_rgb(0x56, 0x9C, 0xD6),
+                accent: ACCENT_DARK,
                 sel_bg: egui::Color32::from_rgb(0x09, 0x47, 0x71),
                 hover_bg: egui::Color32::from_rgb(0x2A, 0x2D, 0x2E),
                 border: egui::Color32::from_rgb(0x3C, 0x3C, 0x3C),
-                text: egui::Color32::from_rgb(0xD4, 0xD4, 0xD4),
+                text: TEXT_DARK,
                 text_dim: egui::Color32::from_rgb(0x85, 0x85, 0x85),
                 text_muted: egui::Color32::from_rgb(0x6A, 0x6A, 0x6A),
                 ok: egui::Color32::from_rgb(0x4E, 0xC9, 0xB0),
@@ -73,17 +81,17 @@ impl Palette {
                 purple: egui::Color32::from_rgb(0xC5, 0x86, 0xC0),
             },
             Theme::Light => Self {
-                bg_app: egui::Color32::from_rgb(0xF9, 0xF9, 0xFA),
+                bg_app: BG_APP_LIGHT,
                 bg_panel: egui::Color32::from_rgb(0xEE, 0xEE, 0xEF),
                 bg_row_a: egui::Color32::from_rgb(0xFF, 0xFF, 0xFF),
                 bg_row_b: egui::Color32::from_rgb(0xF5, 0xF5, 0xF6),
                 bg_header: egui::Color32::from_rgb(0xE8, 0xE8, 0xE9),
                 bg_input: egui::Color32::from_rgb(0xFF, 0xFF, 0xFF),
-                accent: egui::Color32::from_rgb(0x0F, 0x4C, 0x81),
+                accent: ACCENT_LIGHT,
                 sel_bg: egui::Color32::from_rgb(0xD0, 0xE4, 0xF7),
                 hover_bg: egui::Color32::from_rgb(0xE6, 0xE6, 0xE8),
                 border: egui::Color32::from_rgb(0xD0, 0xD0, 0xD1),
-                text: egui::Color32::from_rgb(0x24, 0x24, 0x24),
+                text: TEXT_LIGHT,
                 text_dim: egui::Color32::from_rgb(0x6A, 0x6A, 0x6A),
                 text_muted: egui::Color32::from_rgb(0x8C, 0x8C, 0x8C),
                 ok: egui::Color32::from_rgb(0x0C, 0x78, 0x3D),
@@ -454,34 +462,42 @@ struct FlowLensApp { frontend: GuiFrontend }
 
 impl eframe::App for FlowLensApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // P1-4: DPI scaling is handled automatically by egui/eframe.
-        // We don't call set_zoom_factor() here because pixels_per_point() already
-        // incorporates the system DPI, and setting it back causes a feedback loop.
-        // Instead, we ensure fonts and layout are responsive by using em-based sizes
-        // and allowing ScrollArea to scale naturally.
+        // P1-4: Respect DPI scaling.
+        ctx.set_zoom_factor(ctx.pixels_per_point());
 
         self.frontend.refresh_snapshot();
-        let snap = self.frontend.snapshot.lock().unwrap().clone();
-        let filtered = self.frontend.filtered_indices(&snap, &self.frontend.filter);
+        let snap_arc = Arc::clone(&self.frontend.snapshot);
+        let snap_guard = snap_arc.lock().unwrap();
+        let snap: &[TrafficRow] = &snap_guard;
+        let filtered = self.frontend.filtered_indices(snap, &self.frontend.filter);
         let sel = self.frontend.selected;
         let p = Palette::new(self.frontend.theme);
 
         // Apply custom visuals so egui's built-in widgets match our palette
-        let mut visuals = egui::Visuals::dark();
+        let visuals = if self.frontend.theme == Theme::Dark {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
+        let mut visuals = visuals;
         visuals.window_rounding = egui::Rounding::same(4.0);
         visuals.panel_fill = p.bg_app;
         visuals.window_fill = p.bg_panel;
         visuals.extreme_bg_color = p.bg_app;
+        visuals.code_bg_color = p.bg_input;
         visuals.widgets.noninteractive.bg_fill = p.bg_input;
         visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, p.border_color());
+        visuals.widgets.noninteractive.weak_bg_fill = p.bg_input;
+        visuals.widgets.inactive.bg_fill = p.bg_input;
+        visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, p.border_color());
         visuals.widgets.hovered.bg_fill = p.hover_bg;
         visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, p.accent);
-        visuals.widgets.active.bg_fill = p.hover_bg;
+        visuals.widgets.active.bg_fill = p.sel_bg;
         visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, p.accent);
         visuals.selection.bg_fill = p.sel_bg;
         visuals.selection.stroke = egui::Stroke::new(1.0_f32, p.accent);
+        visuals.hyperlink_color = p.accent;
         visuals.faint_bg_color = p.bg_row_b;
-        visuals.widgets.noninteractive.weak_bg_fill = p.bg_input;
         ctx.set_visuals(visuals);
 
         // ===== Top bar =====
@@ -553,6 +569,7 @@ impl eframe::App for FlowLensApp {
                         // Force a snapshot refresh so colours are re-applied.
                         self.frontend.snapshot_len
                             .store(usize::MAX, Ordering::SeqCst);
+                        ctx.request_repaint();
                     }
                     if ui.button("\u{6E05}\u{7A7A}").clicked() {
                         self.frontend.events.lock().unwrap().clear();
@@ -717,7 +734,7 @@ impl eframe::App for FlowLensApp {
                     draw_rows(
             ui,
             &p,
-            &snap,
+            snap,
             &filtered,
             sel,
             &mut self.frontend.selected,
@@ -770,17 +787,18 @@ impl eframe::App for FlowLensApp {
         
         // Ctrl+C: copy selected row to clipboard
         let ctrl_c = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::C));
-        if ctrl_c && sel.is_some() {
-            let idx = sel.unwrap();
-            if idx < snap.len() {
-                let row = &snap[idx];
-                let text = format!(
-                    "{} {} {} {} {} {}",
-                    row.timestamp, row.event_type, row.method, row.path, row.status, row.body_size
-                );
-                self.frontend.copy_to_clipboard(&text);
-                // Also set system clipboard
-                ctx.output_mut(|o| o.copied_text = text);
+        if ctrl_c {
+            if let Some(idx) = sel {
+                if idx < snap.len() {
+                    let row = &snap[idx];
+                    let text = format!(
+                        "{} {} {} {} {} {}",
+                        row.timestamp, row.event_type, row.method, row.path, row.status, row.body_size
+                    );
+                    self.frontend.copy_to_clipboard(&text);
+                    // Also set system clipboard
+                    ctx.output_mut(|o| o.copied_text = text);
+                }
             }
         }
         
@@ -791,29 +809,36 @@ impl eframe::App for FlowLensApp {
         }
         
         // Enter: toggle expansion of selected row
-        if ctx.input(|i| i.key_pressed(egui::Key::Enter)) && sel.is_some() {
-            let idx = sel.unwrap();
-            if let Some(pos) = filtered.iter().position(|&x| x == idx) {
-                self.frontend.toggle_expand(pos);
+        if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            if let Some(idx) = sel {
+                if let Some(pos) = filtered.iter().position(|&x| x == idx) {
+                    self.frontend.toggle_expand(pos);
+                }
             }
         }
         
+        // Arrow keys: move selection — ignore when filter field has focus (P0-4).
+        let filter_id = Id::new("filter");
         let n = filtered.len();
-        if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) && n > 0 {
-            let cur = sel
-                .and_then(|s| filtered.iter().position(|&x| x == s))
-                .unwrap_or(0);
-            self.frontend.selected = Some(filtered[cur.saturating_sub(1)]);
-        }
-        if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) && n > 0 {
-            let cur = sel
-                .and_then(|s| filtered.iter().position(|&x| x == s))
-                .unwrap_or(0);
-            self.frontend.selected = Some(filtered[(cur + 1) % n]);
+        if !ctx.memory(|m| m.has_focus(filter_id)) && n > 0 {
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                let cur = sel
+                    .and_then(|s| filtered.iter().position(|&x| x == s))
+                    .unwrap_or(0);
+                self.frontend.selected = Some(filtered[cur.saturating_sub(1)]);
+            } else if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                let cur = sel
+                    .and_then(|s| filtered.iter().position(|&x| x == s))
+                    .unwrap_or(0);
+                self.frontend.selected = Some(filtered[(cur + 1) % n]);
+            }
+        } else {
+            // n == 0: nothing to navigate.
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Helper: draw a table row with selection highlighting
 fn draw_rows(
     ui: &mut egui::Ui,
@@ -825,96 +850,11 @@ fn draw_rows(
     expanded: &mut Option<usize>,
     scroll_to: Option<usize>,
 ) {
-    // P2-1: Virtual scrolling — calculate max rows from actual available height
-    // Each row is ROW_H (28px) + 1px border/bottom space ≈ 29px
-    let row_height = ROW_H + 2.0_f32;
-    let max_rows = (ui.available_height() / row_height).ceil() as usize;
-    let max_rows = max_rows.max(50); // at least 50 rows to avoid empty view
-    let start = filtered.len().saturating_sub(max_rows);
-    let visible = &filtered[start..];
-    for (vi, &ri) in visible.iter().enumerate() {
-        // Bounds guard: the snapshot may shrink between frames (buffer drain),
-        // leaving stale indices in `filtered`. Skip rather than panic on OOB.
-        if ri >= snap.len() {
-            continue;
-        }
-        let fi = start + vi; // index within the filtered list
-        let r = &snap[ri];
-        let is_sel = sel == Some(ri);
-        let bg = p.row_bg(ri, is_sel);
-        let rect = egui::Rect::from_min_size(
-            ui.cursor().min,
-            egui::vec2(ui.available_width(), ROW_H),
-        );
-        ui.painter().rect_filled(rect, 0.0, bg);
-        if is_sel {
-            ui.painter().rect_filled(
-                egui::Rect::from_min_size(rect.min, egui::vec2(3.0, ROW_H)),
-                0.0,
-                p.accent,
-            );
-        }
-        // Subtle bottom border keeps rows visually separated in both themes.
-        ui.painter().hline(
-            rect.min.x..=rect.max.x,
-            rect.max.y - 1.0,
-            egui::Stroke::new(1.0_f32, p.border_color()),
-        );
-        // Hover highlight (only when the row is not already selected).
-        // Note: Sense::click() implies hover in egui, but we use union for clarity.
-        // CRITICAL: Use stable, content-derived ID to prevent mouse state corruption
-        // when snapshot indices shift due to buffer draining. The ID combines the
-        // snapshot index with immutable row content (timestamp, addresses, size) so
-        // egui's widget state cache correctly tracks the same logical row across frames.
-        let stable_row_id = Id::new((
-            "row",
-            ri,
-            r.timestamp,
-            &r.src_addr,
-            &r.dst_addr,
-            r.body_size,
-        ));
-        let response = ui.interact(rect, stable_row_id, Sense::click() | Sense::hover());
-        if !is_sel && response.hovered() {
-            ui.painter().rect_filled(rect, 0.0, p.hover_bg());
-        }
-        if response.clicked() {
-            // Single click: set selection
-            *selected = Some(ri);
-        } else if response.double_clicked() {
-            // Double-click: toggle expansion at filtered index
-            if *expanded == Some(fi) {
-                *expanded = None;
-            } else {
-                *expanded = Some(fi);
-            }
-        }
-        // Auto-scroll if this row should be brought into view
-        if scroll_to == Some(ri) {
-            ui.scroll_to_rect(rect, Some(egui::Align::Center));
-        }
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(COL_GAP, 0.0);
-            ui.add_sized(egui::vec2(COL_TIME, ROW_H), egui::Label::new(
-                RichText::new(fmt_ts(r.timestamp)).color(p.text).size(12.0)));
-            ui.add_sized(egui::vec2(COL_TYPE, ROW_H), egui::Label::new(
-                RichText::new(&r.event_type).color(p.event_color(&r.event_type)).size(12.0)));
-            ui.add_sized(egui::vec2(COL_METHOD, ROW_H), egui::Label::new(
-                RichText::new(&r.method).color(p.text).size(12.0)));
-            ui.add_sized(egui::vec2(COL_STATUS, ROW_H), egui::Label::new(
-                RichText::new(&r.status).color(p.status_color(&r.status)).size(12.0)));
-            ui.add_sized(egui::vec2(COL_SIZE, ROW_H), egui::Label::new(
-                RichText::new(fmt_bytes(r.body_size)).color(p.text_dim).size(12.0)));
-            ui.add_sized(egui::vec2(COL_ADDR, ROW_H), egui::Label::new(
-                RichText::new(fit_chars(&r.src_addr, COL_ADDR)).color(p.text).size(12.0)));
-            ui.add_sized(egui::vec2(COL_ADDR, ROW_H), egui::Label::new(
-                RichText::new(fit_chars(&r.dst_addr, COL_ADDR)).color(p.text).size(12.0)));
-            ui.add_sized(egui::vec2(COL_ADDR + 60.0, ROW_H), egui::Label::new(
-                RichText::new(fit_chars(&r.path, COL_ADDR + 60.0)).color(p.text).size(12.0)));
-        });
-        ui.allocate_space(egui::vec2(0.0, 2.0));
-    }
-    if visible.is_empty() {
+    // Iron-rule #9: virtualized scrolling via show_rows (visible index interval).
+    // Iron-rule #1: one horizontal container per row, natural alignment.
+    // Iron-rule #6: row background painted BEFORE interaction; accent bar on top.
+    let total = filtered.len();
+    if total == 0 {
         ui.centered_and_justified(|ui| {
             ui.label(
                 RichText::new(if snap.is_empty() {
@@ -926,7 +866,97 @@ fn draw_rows(
                 .size(13.0),
             );
         });
+        return;
     }
+
+    ScrollArea::vertical().show_rows(ui, ROW_H + 2.0, total, |row_ui, range| {
+        for row_idx in range {
+            let Some(&ri) = filtered.get(row_idx) else { continue; };
+            // Bounds guard: snapshot may shrink between frames (buffer drain);
+            // skip stale indices instead of panicking.
+            if ri >= snap.len() {
+                continue;
+            }
+            let r = &snap[ri];
+            let is_sel = sel == Some(ri);
+            let bg = p.row_bg(ri, is_sel);
+
+            // Rect aligned with show_rows row grid (cursor min at row start).
+            let rect = egui::Rect::from_min_size(
+                row_ui.cursor().min,
+                egui::vec2(row_ui.available_width(), ROW_H),
+            );
+
+            // Iron-rule #6: background FIRST (below interaction layer).
+            row_ui.painter().rect_filled(rect, 0.0, bg);
+
+            // Subtle bottom border separates rows in both themes.
+            row_ui.painter().hline(
+                rect.min.x..=rect.max.x,
+                rect.max.y - 1.0,
+                egui::Stroke::new(1.0_f32, p.border_color()),
+            );
+
+            // Iron-rule #1: one horizontal container per row.
+            // Iron-rule #2: Id::new(("row", ri)) — stable snapshot index only.
+            let response = row_ui.interact(
+                rect,
+                Id::new(("row", ri)),
+                Sense::click() | Sense::hover(),
+            );
+            // Iron-rule #3: just-in-place hover text + click/double-click ordering.
+            let response = response.on_hover_text(format!("{} {} -> {}", r.event_type, r.src_addr, r.dst_addr));
+            if response.double_clicked() {
+                // Double-click: toggle expansion at filtered index.
+                if *expanded == Some(row_idx) {
+                    *expanded = None;
+                } else {
+                    *expanded = Some(row_idx);
+                }
+            } else if response.clicked() {
+                // Single click: set selection.
+                *selected = Some(ri);
+            }
+
+            if !is_sel && response.hovered() {
+                row_ui.painter().rect_filled(rect, 0.0, p.hover_bg());
+            }
+
+            // Iron-rule #6: accent bar on top layer.
+            if is_sel {
+                row_ui.painter().rect_filled(
+                    egui::Rect::from_min_size(rect.min, egui::vec2(2.0, ROW_H)),
+                    0.0,
+                    p.accent,
+                );
+            }
+
+            // Iron-rule #4: selected row scrolls into view via the response handle.
+            if scroll_to == Some(ri) {
+                response.scroll_to_me(Some(egui::Align::Center));
+            }
+
+            row_ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(COL_GAP, 0.0);
+                ui.add_sized(egui::vec2(COL_TIME, ROW_H), egui::Label::new(
+                    RichText::new(fmt_ts(r.timestamp)).color(p.text).size(12.0)));
+                ui.add_sized(egui::vec2(COL_TYPE, ROW_H), egui::Label::new(
+                    RichText::new(&r.event_type).color(p.event_color(&r.event_type)).size(12.0)));
+                ui.add_sized(egui::vec2(COL_METHOD, ROW_H), egui::Label::new(
+                    RichText::new(&r.method).color(p.text).size(12.0)));
+                ui.add_sized(egui::vec2(COL_STATUS, ROW_H), egui::Label::new(
+                    RichText::new(&r.status).color(p.status_color(&r.status)).size(12.0)));
+                ui.add_sized(egui::vec2(COL_SIZE, ROW_H), egui::Label::new(
+                    RichText::new(fmt_bytes(r.body_size)).color(p.text_dim).size(12.0)));
+                ui.add_sized(egui::vec2(COL_ADDR, ROW_H), egui::Label::new(
+                    RichText::new(fit_chars(&r.src_addr, COL_ADDR)).color(p.text).size(12.0)));
+                ui.add_sized(egui::vec2(COL_ADDR, ROW_H), egui::Label::new(
+                    RichText::new(fit_chars(&r.dst_addr, COL_ADDR)).color(p.text).size(12.0)));
+                ui.add_sized(egui::vec2(COL_ADDR + 60.0, ROW_H), egui::Label::new(
+                    RichText::new(fit_chars(&r.path, COL_ADDR + 60.0)).color(p.text).size(12.0)));
+            });
+        }
+    });
 }
 
 impl UiFrontend for GuiFrontend {
