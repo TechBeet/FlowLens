@@ -157,8 +157,12 @@ fn main() -> anyhow::Result<()> {
 
                     // Launch the appropriate frontend based on --gui flag
                     if gui {
-                        let gui_frontend = flowlens_ui::GuiFrontend::new();
-                        gui_frontend.run(bus.clone() as Arc<dyn flowlens_core::event_bus::EventBus>)?;
+                        tracing::warn!(
+                            "--gui is deprecated; the egui frontend was removed. \
+                             Launching the TUI instead."
+                        );
+                        let tui = flowlens_ui::TuiFrontend::new();
+                        tui.run(bus.clone() as Arc<dyn flowlens_core::event_bus::EventBus>)?;
                     } else {
                         let tui = flowlens_ui::TuiFrontend::new();
                         tui.run(bus.clone() as Arc<dyn flowlens_core::event_bus::EventBus>)?;
