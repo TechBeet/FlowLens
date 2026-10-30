@@ -18,7 +18,3 @@ crossterm = { version = "0.27" }
 chrono = "0.4.45"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.154"
-
-# GUI dependencies
-egui = "0.30"
-eframe = "0.30"
