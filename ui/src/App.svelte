@@ -124,15 +124,12 @@
 
   <div class="main-content">
     <Sidebar
-      {events}
-      {selectedEvent}
-      onselect={selectEvent}
-      onclear={clearEvents}
+      bind:events
+      bind:selectedEvent
     />
     <TrafficTable
-      {events}
-      {selectedEvent}
-      onselect={selectEvent}
+      bind:events
+      bind:selectedEvent
     />
     <RightPanel event={selectedEvent} />
   </div>
