@@ -22,20 +22,18 @@
   </div>
   <div class="event-list" role="list">
     {#each events as event (event.id)}
-      <div
-        role="listitem"
+      <button
+        type="button"
         class="event-item"
         class:selected={selectedEvent?.id === event.id}
-        on:click={() => selectEvent(event)}
-        on:keydown={(e) => e.key === 'Enter' && selectEvent(event)}
-        tabindex="0"
+        onclick={() => selectEvent(event)}
       >
         <span class="event-method">{event.method || '—'}</span>
         <span class="event-url">{event.url || event.info || ''}</span>
         {#if event.status}
           <span class="event-status">{event.status}</span>
         {/if}
-      </div>
+      </button>
     {/each}
     {#if events.length === 0}
       <div class="empty-state">暂无网络流量</div>

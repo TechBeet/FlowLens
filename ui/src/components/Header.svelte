@@ -41,6 +41,14 @@
     <span class="status-label">{running ? "捕获中" : "未捕获"}</span>
   </div>
 
+  <div class="stats-bar" aria-label="流量统计">
+    <span class="stat"><b>{stats.total}</b> 总计</span>
+    <span class="stat"><b>{stats.http}</b> HTTP</span>
+    <span class="stat"><b>{stats.tls}</b> TLS</span>
+    <span class="stat"><b>{stats.websocket}</b> WS</span>
+    <span class="stat"><b>{stats.sse}</b> SSE</span>
+  </div>
+
   <div class="actions">
     <button
       class="btn primary"
@@ -120,6 +128,24 @@
     background: var(--ok);
     box-shadow: 0 0 6px var(--ok);
     animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  .stats-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+
+  .stats-bar .stat b {
+    color: var(--fg);
+    font-weight: 600;
+    margin-left: 4px;
   }
 
   @keyframes pulse {

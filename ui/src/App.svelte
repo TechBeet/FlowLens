@@ -90,6 +90,22 @@
     });
   });
 
+  // Sync running state via capture lifecycle events emitted by the backend.
+  onMount(async () => {
+    const u1 = await listen("capture-started", () => {
+      running = true;
+      addLog("后端已开始捕获");
+    });
+    const u2 = await listen("capture-stopped", () => {
+      running = false;
+      addLog("后端已停止捕获");
+    });
+    return () => {
+      u1();
+      u2();
+    };
+  });
+
   onDestroy(() => {
     unlisten?.();
   });
@@ -100,10 +116,10 @@
     {running}
     {stats}
     {isLoading}
+    theme={currentTheme}
     onstart={startCapture}
     onstop={stopCapture}
-    ontoggle-theme={toggleThemeBtn}
-    theme={currentTheme}
+    ontoggletheme={toggleThemeBtn}
   />
 
   <div class="main-content">
@@ -112,7 +128,6 @@
       {selectedEvent}
       onselect={selectEvent}
       onclear={clearEvents}
-      {stats}
     />
     <TrafficTable
       {events}
