@@ -859,11 +859,13 @@ name = "flowlens-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "glob",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 
