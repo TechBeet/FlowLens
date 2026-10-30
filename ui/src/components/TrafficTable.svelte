@@ -1,14 +1,10 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import type { TrafficEvent } from '../lib/types';
   
-  export let events: TrafficEvent[] = [];
-  export let selectedEvent: TrafficEvent | null = null;
-  
-  const dispatch = createEventDispatcher();
+  let { events = $bindable<TrafficEvent[]>([]), selectedEvent = $bindable<TrafficEvent | null>(null) } = $props();
   
   function selectEvent(event: TrafficEvent) {
-    dispatch('select', event);
+    selectedEvent = event;
   }
 </script>
 
@@ -29,7 +25,7 @@
           <tr
             class="event-row"
             class:selected={selectedEvent?.id === event.id}
-            on:click={() => selectEvent(event)}
+            onclick={() => selectEvent(event)}
           >
             <td class="method">{event.method || '—'}</td>
             <td class="url">{event.url || event.info || '—'}</td>
@@ -49,6 +45,7 @@
   .traffic-table {
     width: 100%;
     overflow: auto;
+    flex: 1;
   }
 
   table {
@@ -60,36 +57,42 @@
   th, td {
     padding: 8px 12px;
     text-align: left;
-    border-bottom: 1px solid #222;
+    border-bottom: 1px solid var(--border);
   }
 
   th {
-    background: #151520;
-    color: #bbb;
+    background: var(--panel);
+    color: var(--fg);
     font-weight: 500;
+    position: sticky;
+    top: 0;
+  }
+
+  tr:nth-child(even) {
+    background: var(--row-alt);
   }
 
   .event-row:hover {
-    background: #1a1a2e;
+    background: var(--hover);
   }
 
   .event-row.selected {
-    background: #201f33;
+    background: var(--selected);
   }
 
   .method {
-    color: #7c5af3;
+    color: var(--accent);
     font-weight: 600;
   }
 
   .url {
-    color: #aaa;
+    color: var(--fg-dim);
     font-size: 12px;
   }
 
   .empty-state {
     padding: 20px;
     text-align: center;
-    color: #555;
+    color: var(--fg-dim);
   }
 </style>
