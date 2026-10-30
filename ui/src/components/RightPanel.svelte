@@ -1,7 +1,10 @@
 <script lang="ts">
   import type { TrafficEvent } from '../lib/types';
   
-  export let event: TrafficEvent | null = null;
+  let { event = $bindable<TrafficEvent | null>(null) } = $props();
+  
+  let activeTab = $state(0);
+  const tabs = ["请求头", "响应头", "请求体", "响应体"];
 </script>
 
 {#if event}
@@ -12,10 +15,15 @@
     </div>
     
     <div class="detail-tabs">
-      <button class="tab-btn active">请求头</button>
-      <button class="tab-btn">响应头</button>
-      <button class="tab-btn">请求体</button>
-      <button class="tab-btn">响应体</button>
+      {#each tabs as tab, i}
+        <button
+          class="tab-btn"
+          class:active={activeTab === i}
+          onclick={() => (activeTab = i)}
+        >
+          {tab}
+        </button>
+      {/each}
     </div>
     
     <div class="detail-content">
@@ -36,23 +44,24 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    background: var(--surface);
   }
 
   .detail-header {
     padding: 12px 16px;
-    border-bottom: 1px solid #222;
-    background: #151520;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
   }
 
   .detail-method {
     font-weight: 600;
-    color: #7c5af3;
+    color: var(--accent);
     font-size: 14px;
   }
 
   .detail-url {
     display: block;
-    color: #aaa;
+    color: var(--fg-dim);
     font-size: 12px;
     margin-top: 4px;
     word-break: break-all;
@@ -60,15 +69,15 @@
 
   .detail-tabs {
     display: flex;
-    background: #151520;
-    border-bottom: 1px solid #222;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
   }
 
   .tab-btn {
     padding: 10px 16px;
     background: transparent;
     border: none;
-    color: #888;
+    color: var(--fg-dim);
     font-size: 13px;
     cursor: pointer;
     transition: all 0.15s;
@@ -76,13 +85,13 @@
 
   .tab-btn.active,
   .tab-btn:hover {
-    color: #eee;
-    background: #1e1e2e;
+    color: var(--fg);
+    background: var(--hover);
   }
 
   .tab-btn.active {
-    color: #7c5af3;
-    border-bottom: 2px solid #7c5af3;
+    color: var(--accent);
+    border-bottom: 2px solid var(--accent);
   }
 
   .detail-content {
@@ -94,13 +103,13 @@
   .event-json {
     font-size: 12px;
     line-height: 1.5;
-    color: #bbb;
+    color: var(--fg);
     white-space: pre-wrap;
     word-break: break-word;
   }
 
   .empty-detail {
-    color: #555;
+    color: var(--fg-dim);
     text-align: center;
     padding: 40px;
     font-size: 14px;
