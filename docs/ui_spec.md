@@ -1,3 +1,11 @@
+# ⚠️ NOT A FLOWLENS DOCUMENT
+
+> **This document is about a DIFFERENT project (Classin video downloader WPF UI).**
+> It is misfiled in the FlowLens docs directory. It contains no FlowLens-specific information.
+> FlowLens UI specs are in `docs/ui_analysis_report.md`.
+
+---
+
 # UI 规格说明书 - Classin 视频解析下载工具
 *版本：1.0.0*
 
