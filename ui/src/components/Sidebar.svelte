@@ -2,6 +2,8 @@
   import type { TrafficEvent } from '../lib/types';
   
   let { events = $bindable<TrafficEvent[]>([]), selectedEvent = $bindable<TrafficEvent | null>(null) } = $props();
+
+  let searchQuery = $state("");
   
   function selectEvent(event: TrafficEvent) {
     selectedEvent = event;
@@ -11,6 +13,20 @@
     events = [];
     selectedEvent = null;
   }
+
+  let filteredEvents = $derived(
+    searchQuery.trim() === ""
+      ? events
+      : events.filter((e) => {
+          const q = searchQuery.toLowerCase();
+          return (
+            (e.method?.toLowerCase().includes(q) ?? false) ||
+            (e.url?.toLowerCase().includes(q) ?? false) ||
+            (e.info?.toLowerCase().includes(q) ?? false) ||
+            (e.status?.toLowerCase().includes(q) ?? false)
+          );
+        })
+  );
   
   export function dispatch(e: CustomEvent) {
     // Forward custom events if needed
@@ -19,10 +35,10 @@
 
 <div class="sidebar">
   <div class="search-bar">
-    <input type="text" placeholder="搜索事件..." />
+    <input type="text" bind:value={searchQuery} placeholder="搜索事件..." />
   </div>
   <div class="event-list" role="list">
-    {#each events as event (event.id)}
+    {#each filteredEvents as event (event.id)}
       <button
         type="button"
         class="event-item"
@@ -36,8 +52,14 @@
         {/if}
       </button>
     {/each}
-    {#if events.length === 0}
-      <div class="empty-state">暂无网络流量</div>
+    {#if filteredEvents.length === 0}
+      <div class="empty-state">
+        {#if searchQuery.trim()}
+          未匹配到事件
+        {:else}
+          暂无网络流量
+        {/if}
+      </div>
     {/if}
   </div>
   <button class="clear-btn" onclick={clearEvents}>清除全部</button>
