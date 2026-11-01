@@ -15,4 +15,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 flowlens-core = { path = "../../crates/flowlens-core" }
 flowlens-capture = { path = "../../crates/flowlens-capture" }
+flowlens-tls = { path = "../../crates/flowlens-tls" }
+flowlens-replay = { path = "../../crates/flowlens-replay" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"] }
+chrono = "0.4"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
