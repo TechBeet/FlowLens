@@ -1,3 +1,11 @@
+# ⚠️ NOT A FLOWLENS DOCUMENT
+
+> **This document is about a DIFFERENT project (Classin video downloader vs FlowLens).**
+> It is misfiled in the FlowLens docs directory. It contains no FlowLens-specific information.
+> See [README.md](../README.md) for the actual FlowLens documentation.
+
+---
+
 # 最终审查报告
 
 **审查项目**：Classin 视频下载工具 vs FlowLens  
