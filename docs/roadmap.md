@@ -9,7 +9,7 @@
 - [x] **flowlens-cli**: 命令行入口、管理员权限检查、安装驱动
 - [x] **flowlens-capture**: Npcap 用户态捕获引擎
 - [x] **flowlens-attribution**: ETW + IP Helper 进程归属
-- [x] **flowlens-tls**: rcgen CA + rustls MITM 解密
+- [x] **flowlens-tls**: rcgen CA + rustls MITM 解密 ⚠️ **Partial**: CA lifecycle works; `decrypt_stream` is a passthrough stub (returns input as-is). True decryption via `MitmStream` async proxy path not yet wired into the pipeline.
 - [x] **flowlens-protocol**: HTTP/1.1 解析 (httparse)
 - [x] **flowlens-storage**: SQLite 存储
 - [x] **flowlens-ui**: ratatui TUI 界面
