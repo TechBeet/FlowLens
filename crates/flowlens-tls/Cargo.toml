@@ -13,6 +13,16 @@ thiserror = "1"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 rcgen = { version = "0.13", features = ["pem", "x509-parser"] }
+x509-parser = "0.16"
 chrono = { version = "0.4.45", features = ["serde"] }
 sha2 = "0.10"
 rayon = "1.8"
+
+# TLS termination and MITM
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"] }
+rustls-pemfile = { version = "2.1" }
+webpki-roots = "0.26"
+
+# Windows certificate store for CA installation
+windows-sys = { version = "0.52", features = ["Win32_Security_Cryptography", "Win32_Foundation", "Win32_System", "Win32_System_Diagnostics_Debug", "Win32_System_SystemServices"] }
