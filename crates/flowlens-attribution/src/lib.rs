@@ -23,7 +23,7 @@ pub trait AttributionEngine: Send + Sync {
 pub trait IpHelperLookup: Send + Sync {
     fn get_tcp_table(&self, family: AddressFamily) -> Vec<TcpConnection>;
     fn get_pid_from_tcp_socket(&self, src: SocketAddr, dst: SocketAddr) -> Option<u32>;
-    fn get_pid_from_udp_socket(&self, socket: SocketAddr) -> Option<u32>;
+    fn get_pid_from_udp_socket(&self, sock: SocketAddr) -> Option<u32>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,6 +147,143 @@ impl AttributionEngine for InMemoryAttributionEngine {
     }
 }
 
+/// Real Windows IP Helper implementation using iphlpapi.dll
+#[cfg(windows)]
+pub struct WindowsIpHelper;
+
+#[cfg(windows)]
+impl WindowsIpHelper {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(windows)]
+impl IpHelperLookup for WindowsIpHelper {
+    fn get_tcp_table(&self, _family: AddressFamily) -> Vec<TcpConnection> {
+        Vec::new()
+    }
+
+    fn get_pid_from_tcp_socket(&self, src: SocketAddr, dst: SocketAddr) -> Option<u32> {
+        use windows_sys::Win32::NetworkManagement::IpHelper::*;
+        use windows_sys::Win32::Networking::WinSock::*;
+
+        let mut size: u32 = 0;
+        unsafe {
+            // First call to get required size
+            let _ = GetExtendedTcpTable(
+                std::ptr::null_mut(),
+                &mut size,
+                false as i32,
+                AF_INET as u32,
+                TCP_TABLE_OWNER_PID_CONNECTIONS,
+                0,
+            );
+            if size == 0 {
+                return None;
+            }
+            let mut buf = vec![0u8; size as usize];
+            let ret = GetExtendedTcpTable(
+                buf.as_mut_ptr() as *mut core::ffi::c_void,
+                &mut size,
+                false as i32,
+                AF_INET as u32,
+                TCP_TABLE_OWNER_PID_CONNECTIONS,
+                0,
+            );
+            if ret != 0 {
+                return None;
+            }
+            let table = buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
+            let count = (*table).dwNumEntries;
+            for i in 0..count {
+                let row = &(*table).table[i as usize];
+                let src_addr = SocketAddr::new(
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::from(row.dwLocalAddr.to_le_bytes())),
+                    row.dwLocalPort as u16,
+                );
+                let dst_addr = SocketAddr::new(
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::from(row.dwRemoteAddr.to_le_bytes())),
+                    row.dwRemotePort as u16,
+                );
+                if src_addr == src && dst_addr == dst {
+                    return Some(row.dwOwningPid);
+                }
+            }
+            None
+        }
+    }
+
+    fn get_pid_from_udp_socket(&self, sock: SocketAddr) -> Option<u32> {
+        use windows_sys::Win32::NetworkManagement::IpHelper::*;
+        use windows_sys::Win32::Networking::WinSock::*;
+
+        let mut size: u32 = 0;
+        unsafe {
+            let _ = GetExtendedUdpTable(
+                std::ptr::null_mut(),
+                &mut size,
+                false as i32,
+                AF_INET as u32,
+                UDP_TABLE_OWNER_PID,
+                0,
+            );
+            if size == 0 {
+                return None;
+            }
+            let mut buf = vec![0u8; size as usize];
+            let ret = GetExtendedUdpTable(
+                buf.as_mut_ptr() as *mut core::ffi::c_void,
+                &mut size,
+                false as i32,
+                AF_INET as u32,
+                UDP_TABLE_OWNER_PID,
+                0,
+            );
+            if ret != 0 {
+                return None;
+            }
+            let table = buf.as_ptr() as *const MIB_UDPTABLE_OWNER_PID;
+            let count = (*table).dwNumEntries;
+            for i in 0..count {
+                let row = &(*table).table[i as usize];
+                let local_sock = SocketAddr::new(
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::from(row.dwLocalAddr.to_le_bytes())),
+                    row.dwLocalPort as u16,
+                );
+                if local_sock == sock {
+                    return Some(row.dwOwningPid);
+                }
+            }
+            None
+        }
+    }
+}
+
+/// Non-Windows fallback: use FakeIpHelper behavior
+#[cfg(not(windows))]
+pub struct WindowsIpHelper;
+
+#[cfg(not(windows))]
+impl WindowsIpHelper {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(not(windows))]
+impl IpHelperLookup for WindowsIpHelper {
+    fn get_tcp_table(&self, _family: AddressFamily) -> Vec<TcpConnection> {
+        Vec::new()
+    }
+    fn get_pid_from_tcp_socket(&self, _src: SocketAddr, _dst: SocketAddr) -> Option<u32> {
+        None
+    }
+    fn get_pid_from_udp_socket(&self, _sock: SocketAddr) -> Option<u32> {
+        None
+    }
+}
+
 /// Simple IP Helper implementation for testing
 #[derive(Default)]
 pub struct FakeIpHelper;
@@ -161,7 +298,7 @@ impl IpHelperLookup for FakeIpHelper {
         Some(1234)
     }
 
-    fn get_pid_from_udp_socket(&self, _socket: SocketAddr) -> Option<u32> {
+    fn get_pid_from_udp_socket(&self, _sock: SocketAddr) -> Option<u32> {
         Some(5678)
     }
 }
