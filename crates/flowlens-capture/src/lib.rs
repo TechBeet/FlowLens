@@ -155,7 +155,7 @@ impl MockEngine {
                 count: 1,
             },
             3 => TrafficEvent::HttpRequest {
-                session_id: flowlens_core::models::SessionId(0),
+                session_id: flowlens_core::models::SessionId(n),
                 conn,
                 request: flowlens_core::models::HttpRequest {
                     method: "GET".to_string(),
@@ -169,7 +169,7 @@ impl MockEngine {
                 },
             },
             4 => TrafficEvent::HttpResponse {
-                session_id: flowlens_core::models::SessionId(0),
+                session_id: flowlens_core::models::SessionId(n),
                 conn,
                 response: flowlens_core::models::HttpResponse {
                     status_code: 200,
@@ -331,6 +331,7 @@ pub fn spawn_mock_producer(bus: Arc<dyn EventBus>) {
 
     std::thread::spawn(move || {
         let mut n: u64 = 0;
+    let session_mgr = flowlens_core::session::InMemorySessionManager::new();
         let sleep = std::time::Duration::from_millis(80);
         let max_no_subscriber_secs: u64 = 30;
         let check_interval = std::time::Duration::from_millis(50);
@@ -341,7 +342,7 @@ pub fn spawn_mock_producer(bus: Arc<dyn EventBus>) {
         let mut no_subscriber_since: Option<std::time::Instant> = None;
 
         loop {
-            let ev = generate_event(n);
+            let ev = generate_event(n, &session_mgr);
             tracing::debug!("Publishing event #{}: {}", n, event_type_label(&ev));
 
             // Check if we have subscribers before publishing
@@ -402,7 +403,7 @@ fn event_type_label(ev: &TrafficEvent) -> &'static str {
     }
 }
 
-fn generate_event(n: u64) -> TrafficEvent {
+fn generate_event(n: u64, session_mgr: &dyn flowlens_core::session::SessionManager) -> TrafficEvent {
     use flowlens_core::models::*;
     let ts = flowlens_core::models::now_micros();
     let conn = ConnectionKey {
@@ -475,7 +476,7 @@ fn generate_event(n: u64) -> TrafficEvent {
             },
         },
         4 => TrafficEvent::HttpRequest {
-            session_id: SessionId(n),
+            session_id: session_mgr.create_session(conn.clone()),
             conn,
             request: HttpRequest {
                 method: match n % 5 {
@@ -499,7 +500,7 @@ fn generate_event(n: u64) -> TrafficEvent {
             },
         },
         5 | 6 => TrafficEvent::HttpResponse {
-            session_id: SessionId(n),
+            session_id: session_mgr.create_session(conn.clone()),
             conn,
             response: HttpResponse {
                 status_code: [200u16, 201, 204, 301, 400, 404, 500][(n % 7) as usize],
@@ -521,7 +522,7 @@ fn generate_event(n: u64) -> TrafficEvent {
             },
         },
         7 => TrafficEvent::WebSocketFrame {
-            session_id: SessionId(n),
+            session_id: session_mgr.create_session(conn.clone()),
             conn,
             frame: WebSocketFrame {
                 opcode: match n % 4 {
@@ -541,7 +542,7 @@ fn generate_event(n: u64) -> TrafficEvent {
             },
         },
         8 => TrafficEvent::SseEvent {
-            session_id: SessionId(n),
+            session_id: session_mgr.create_session(conn.clone()),
             conn,
             event: SseEvent {
                 event_type: Some(
@@ -560,7 +561,7 @@ fn generate_event(n: u64) -> TrafficEvent {
             },
         },
         9 => TrafficEvent::GrpcCall {
-            session_id: SessionId(n),
+            session_id: session_mgr.create_session(conn.clone()),
             conn,
             call: GrpcCall {
                 service: "google.protobuf".to_string(),
@@ -730,7 +731,8 @@ mod tests {
     #[test]
     fn test_generate_event_variants() {
         for n in 0..40u64 {
-            let _ = generate_event(n);
+            let mgr = flowlens_core::session::InMemorySessionManager::new();
+            let _ = generate_event(n, &mgr);
         }
     }
 
