@@ -79,6 +79,22 @@ pub enum Commands {
     Cleanup,
     /// Show version
     Version,
+    /// Replay requests from a captured session to a target URL
+    Replay {
+        /// Session ID to replay
+        #[arg(short, long)]
+        session_id: u64,
+        /// Override base URL for replay destination
+        #[arg(long)]
+        base_url: Option<String>,
+    },
+    /// Diff two capture sessions
+    Diff {
+        /// First session ID
+        id_a: u64,
+        /// Second session ID
+        id_b: u64,
+    },
 }
 
 /// Check if running as administrator using Windows TokenElevation API
