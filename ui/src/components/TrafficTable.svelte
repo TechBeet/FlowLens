@@ -6,6 +6,55 @@
   function selectEvent(event: TrafficEvent) {
     selectedEvent = event;
   }
+
+  type SortKey = "method" | "url" | "status" | "size" | "time";
+  let sortKey = $state<SortKey>("time");
+  let sortAsc = $state(true);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      sortAsc = !sortAsc;
+    } else {
+      sortKey = key;
+      sortAsc = true;
+    }
+  }
+
+  let sortedEvents = $derived.by(() => {
+    const arr = [...events];
+    arr.sort((a, b) => {
+      let va: string | number = "";
+      let vb: string | number = "";
+      switch (sortKey) {
+        case "method":
+          va = a.method ?? "";
+          vb = b.method ?? "";
+          break;
+        case "url":
+          va = a.url ?? a.info ?? "";
+          vb = b.url ?? b.info ?? "";
+          break;
+        case "status":
+          va = a.status ?? "";
+          vb = b.status ?? "";
+          break;
+        case "size":
+          va = a.size ?? 0;
+          vb = b.size ?? 0;
+          break;
+        case "time":
+          va = a.time ?? "";
+          vb = b.time ?? "";
+          break;
+      }
+      if (typeof va === "number" && typeof vb === "number") {
+        return sortAsc ? va - vb : vb - va;
+      }
+      const cmp = String(va).localeCompare(String(vb));
+      return sortAsc ? cmp : -cmp;
+    });
+    return arr;
+  });
 </script>
 
 <div class="traffic-table">
@@ -13,15 +62,15 @@
     <table>
       <thead>
         <tr>
-          <th>Method</th>
-          <th>URL</th>
-          <th>Status</th>
-          <th>Size</th>
-          <th>Time</th>
+          <th onclick={() => toggleSort("method")} class="sortable">Method {sortKey === "method" ? (sortAsc ? "▲" : "▼") : ""}</th>
+          <th onclick={() => toggleSort("url")} class="sortable">URL {sortKey === "url" ? (sortAsc ? "▲" : "▼") : ""}</th>
+          <th onclick={() => toggleSort("status")} class="sortable">Status {sortKey === "status" ? (sortAsc ? "▲" : "▼") : ""}</th>
+          <th onclick={() => toggleSort("size")} class="sortable">Size {sortKey === "size" ? (sortAsc ? "▲" : "▼") : ""}</th>
+          <th onclick={() => toggleSort("time")} class="sortable">Time {sortKey === "time" ? (sortAsc ? "▲" : "▼") : ""}</th>
         </tr>
       </thead>
       <tbody>
-        {#each events as event (event.id)}
+        {#each sortedEvents as event (event.id)}
           <tr
             class="event-row"
             class:selected={selectedEvent?.id === event.id}
@@ -66,6 +115,11 @@
     font-weight: 500;
     position: sticky;
     top: 0;
+    cursor: pointer;
+  }
+
+  th:hover {
+    background: var(--hover);
   }
 
   tr:nth-child(even) {
