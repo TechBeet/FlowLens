@@ -4,8 +4,24 @@
   "identifier": "com.flowlens.app",
   "build": {
     "beforeBuildCommand": "npm run build",
-    "devUrl": "http://localhost:3000",
     "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "FlowLens - HTTP/HTTPS Packet Capture Tool",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
