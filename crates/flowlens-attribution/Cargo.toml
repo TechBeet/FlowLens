@@ -11,4 +11,4 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 thiserror = "1"
 anyhow = "1"
-windows-sys = { version = "0.52", features = ["Win32_Networking_WinSock", "Win32_System_Threading", "Win32_Security"] }
+windows-sys = { version = "0.52", features = ["Win32_Networking_WinSock", "Win32_System_Threading", "Win32_Security", "Win32_NetworkManagement_IpHelper", "Win32_Foundation"] }
