@@ -24,6 +24,30 @@ export async function exportHAR(path: string): Promise<void> {
   await invoke("export_har", { path });
 }
 
+// ---------- CA management ----------
+
+export interface CaStatus {
+  installed: boolean;
+  cn: string | null;
+  pem: string | null;
+}
+
+export async function installCA(cn: string): Promise<void> {
+  await invoke("install_ca", { cn });
+}
+
+export async function uninstallCA(cn: string): Promise<void> {
+  await invoke("uninstall_ca", { cn });
+}
+
+export async function checkCAStatus(cn: string): Promise<CaStatus> {
+  return (await invoke("check_ca_status", { cn })) as CaStatus;
+}
+
+export async function getCAPem(): Promise<string | null> {
+  return (await invoke("get_ca_pem")) as string | null;
+}
+
 // ---------- Theme management ----------
 
 export type Theme = "dark" | "light";
