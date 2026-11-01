@@ -374,6 +374,23 @@ fn main() -> anyhow::Result<()> {
                 flowlens_cli::Commands::Version => {
                     println!("FlowLens v0.1.0");
                 }
+                flowlens_cli::Commands::Replay {
+                    session_id,
+                    base_url,
+                } => {
+                    tracing::info!(
+                        "Replaying session {} (base_url={:?})",
+                        session_id,
+                        base_url
+                    );
+                    println!("Replay for session {} requested", session_id);
+                    // TODO: integrate storage load + ReplayClient once storage API is available
+                }
+                flowlens_cli::Commands::Diff { id_a, id_b } => {
+                    tracing::info!("Diffing sessions {} and {}", id_a, id_b);
+                    println!("Diff between session {} and {}", id_a, id_b);
+                    // TODO: integrate storage load + diff_sessions once storage API is available
+                }
             }
 
             Ok(())
