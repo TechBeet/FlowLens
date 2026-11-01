@@ -5,6 +5,7 @@
 //! capture sessions.
 
 use rayon::prelude::*;
+use std::sync::Arc;
 
 /// A thread-safe concurrent TLS decryption engine.
 ///
@@ -15,17 +16,31 @@ use rayon::prelude::*;
 pub struct ConcurrentDecryptor {
     /// Number of worker threads to use (0 = Rayon default).
     workers: usize,
+    /// Pre-built Rayon thread pool (created once, reused across calls).
+    pool: Option<Arc<rayon::ThreadPool>>,
 }
 
 impl ConcurrentDecryptor {
     /// Create a new concurrent decryptor with the default thread pool.
     pub fn new() -> Self {
-        Self { workers: 0 }
+        Self {
+            workers: 0,
+            pool: None,
+        }
     }
 
     /// Create a concurrent decryptor with a specific worker count.
     pub fn with_workers(workers: usize) -> Self {
-        Self { workers }
+        let pool = if workers > 0 {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .build()
+                .ok()
+                .map(Arc::new)
+        } else {
+            None
+        };
+        Self { workers, pool }
     }
 
     /// Decrypt a batch of encrypted TLS payloads in parallel.
@@ -34,12 +49,7 @@ impl ConcurrentDecryptor {
     /// vector has the same length; entries are `None` when decryption fails
     /// for that stream.
     pub fn decrypt_batch(&self, inputs: &[&[u8]]) -> Vec<Option<Vec<u8>>> {
-        // Apply a custom thread pool if requested.
-        if self.workers > 0 {
-            let pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(self.workers)
-                .build()
-                .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
+        if let Some(pool) = &self.pool {
             pool.install(|| {
                 inputs
                     .par_iter()
