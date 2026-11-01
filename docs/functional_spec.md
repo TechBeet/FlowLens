@@ -1,3 +1,11 @@
+# ⚠️ NOT A FLOWLENS DOCUMENT
+
+> **This document is about a DIFFERENT project (Classin video downloader WPF app).**
+> It is misfiled in the FlowLens docs directory. It contains no FlowLens-specific information.
+> FlowLens functional specs are in `docs/review/feature_parity_matrix.md`.
+
+---
+
 # Classin视频解析下载工具 - 功能规格说明书 (v1.0.0)
 
 > **Project**: Classin视频解析下载工具 (图形化 v1.0.0)
