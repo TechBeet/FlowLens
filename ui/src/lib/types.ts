@@ -11,6 +11,10 @@ export interface TrafficEvent {
   method?: string;
   url?: string;
   status?: string;
+  requestHeaders?: Record<string, string>;
+  responseHeaders?: Record<string, string>;
+  requestBody?: string;
+  responseBody?: string;
 }
 
 export interface TrafficStats {
