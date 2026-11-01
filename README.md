@@ -36,14 +36,14 @@ API and data model exist but behaviour is incomplete.
 | HTTP/2 parsing | ✅ Implemented | HTTP/2 frame parser with HPACK header decompression |
 | gRPC parsing | ✅ Implemented | 5-byte gRPC frame parser with incremental buffering |
 | CA generation / leaf signing | ✅ Implemented | `rcgen` + `rustls` |
-| TLS MITM decryption | ⚠️ Partial | CA lifecycle works; `decrypt_stream` is currently a passthrough stub |
+| TLS MITM decryption | ⚠️ Partial | CA lifecycle works; `decrypt_stream` sync helper still returns input as-is; true decryption via `MitmStream` async proxy path |
 | In-memory storage | ✅ Implemented | Ring-buffer backed |
 | SQLite storage | ✅ Implemented | Full CRUD: insert, get, list, delete, query with filters (pid, host, protocol) |
 | HAR export | ✅ Implemented | HAR 1.2 compatible |
 | SAZ import | ✅ Implemented | Fiddler `.saz` archives; extracts raw HTTP request/response pairs |
 | MCP server | ⚠️ Partial | Core tools present; transport hardening pending |
 | TUI (ratatui) | ✅ Implemented | Live event stream, filters, selection |
-| GUI (egui) | ✅ Implemented | Light/dark themes, filtering, row detail |
+| GUI (egui) | ❌ Removed | egui GUI was removed in favor of Tauri/Svelte shell; see `docs/ui_analysis_report.md` |
 | Svelte/Tauri shell | ⚠️ Partial | UI complete; backend wiring in progress |
 | WFP kernel driver | ❌ Planned | Design only, no driver shipped |
 
