@@ -5,6 +5,26 @@
   
   let activeTab = $state(0);
   const tabs = ["请求头", "响应头", "请求体", "响应体"];
+
+  function formatHeaders(headers: Record<string, string> | undefined): string {
+    if (!headers || Object.keys(headers).length === 0) {
+      return "(无头信息)";
+    }
+    return Object.entries(headers)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("\n");
+  }
+
+  function formatBody(body: string | undefined): string {
+    if (!body) {
+      return "(无内容)";
+    }
+    try {
+      return JSON.stringify(JSON.parse(body), null, 2);
+    } catch {
+      return body;
+    }
+  }
 </script>
 
 {#if event}
@@ -27,7 +47,15 @@
     </div>
     
     <div class="detail-content">
-      <pre class="event-json">{JSON.stringify(event, null, 2)}</pre>
+      {#if activeTab === 0}
+        <pre class="event-json">{formatHeaders(event.requestHeaders)}</pre>
+      {:else if activeTab === 1}
+        <pre class="event-json">{formatHeaders(event.responseHeaders)}</pre>
+      {:else if activeTab === 2}
+        <pre class="event-json">{formatBody(event.requestBody)}</pre>
+      {:else if activeTab === 3}
+        <pre class="event-json">{formatBody(event.responseBody)}</pre>
+      {/if}
     </div>
   </div>
 {:else}
