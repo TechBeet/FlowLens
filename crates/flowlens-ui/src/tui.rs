@@ -22,7 +22,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Paragraph, TableState},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState},
     Frame, Terminal,
 };
 
@@ -134,6 +134,61 @@ impl UiFrontend for TuiFrontend {
                     .style(Style::default().fg(Color::Yellow))
                     .block(Block::default().borders(Borders::ALL).title(" 状态"));
                 frame.render_widget(status_par, chunks[1]);
+
+                // 主内容区域 - 表格
+                let events = app.events.lock().unwrap();
+                let header_cells = vec!["时间", "方法", "URL", "状态", "大小"]
+                    .iter()
+                    .map(|&c| Cell::from(c).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .collect::<Vec<_>>();
+                let header_row = Row::new(header_cells)
+                    .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                    .bottom_margin(1);
+
+                let rows: Vec<Row> = events
+                    .iter()
+                    .map(|row| {
+                        let time_str = chrono::DateTime::from_timestamp(row.timestamp, 0)
+                            .map(|dt| dt.format("%H:%M:%S").to_string())
+                            .unwrap_or_else(|| "-".to_string());
+                        let size_str = format!("{} B", row.body_size);
+                        Row::new(vec![
+                            Cell::from(time_str),
+                            Cell::from(row.method.clone()),
+                            Cell::from(row.path.clone()),
+                            Cell::from(row.status.clone()),
+                            Cell::from(size_str),
+                        ])
+                    })
+                    .collect();
+
+                let widths = [
+                    Constraint::Length(10),
+                    Constraint::Length(8),
+                    Constraint::Fill(1),
+                    Constraint::Length(12),
+                    Constraint::Length(10),
+                ];
+
+                let table = Table::new(rows, widths)
+                    .header(header_row)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(" 流量事件 ")
+                            .border_style(Style::default().fg(if app.debug_mode { Color::Magenta } else { Color::DarkGray })),
+                    )
+                    .highlight_style(
+                        Style::default()
+                            .bg(if app.debug_mode { Color::Magenta } else { Color::Blue })
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("> ");
+
+                let mut table_state = app.table_state.clone();
+                frame.render_stateful_widget(table, chunks[2], &mut table_state);
+                app.table_state = table_state;
             });
 
             // 处理按键事件
