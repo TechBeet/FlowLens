@@ -18,12 +18,84 @@
   let error = $state<string | null>(null);
   let logEntries = $state<string[]>([]);
   let unlisten: (() => void) | undefined;
+  let devices = $state<string[]>([]);
+  let selectedDevice = $state<string>("");
+  let caStatus = $state<{ installed: boolean; cn: string | null }>({ installed: false, cn: null });
+  let statsInterval: number | undefined;
 
   // Initialize theme
   onMount(() => {
     currentTheme = api.loadTheme();
     api.applyTheme(currentTheme);
   });
+
+  // Load devices
+  async function loadDevices() {
+    try {
+      const devs = await api.listDevices();
+      devices = devs;
+      if (devs.length > 0 && !selectedDevice) {
+        selectedDevice = devs[0];
+      }
+    } catch (e) {
+      addLog(`加载设备列表失败：${e}`);
+    }
+  }
+
+  // Poll stats
+  async function pollStats() {
+    try {
+      const s = await api.getStats();
+      stats = s;
+    } catch (e) {
+      // Silently ignore polling errors
+    }
+  }
+
+  // Check CA status
+  async function checkCA() {
+    try {
+      const status = await api.checkCAStatus("FlowLens CA");
+      caStatus = { installed: status.installed, cn: status.cn };
+    } catch (e) {
+      addLog(`CA 状态检查失败：${e}`);
+    }
+  }
+
+  // Install CA
+  async function installCA() {
+    try {
+      await api.installCA("FlowLens CA");
+      addLog("CA 证书已安装");
+      await checkCA();
+    } catch (e) {
+      addLog(`CA 安装失败：${e}`);
+    }
+  }
+
+  // Uninstall CA
+  async function uninstallCA() {
+    try {
+      await api.uninstallCA("FlowLens CA");
+      addLog("CA 证书已卸载");
+      await checkCA();
+    } catch (e) {
+      addLog(`CA 卸载失败：${e}`);
+    }
+  }
+
+  // Export HAR
+  async function exportHAR() {
+    try {
+      const path = window.prompt("请输入导出路径 (例如: C:\\\\output.har):");
+      if (path) {
+        await api.exportHAR(path);
+        addLog(`已导出 HAR: ${path}`);
+      }
+    } catch (e) {
+      addLog(`导出 HAR 失败：${e}`);
+    }
+  }
 
   // Start capture
   async function startCapture() {
@@ -33,6 +105,10 @@
       await api.startCapture();
       running = true;
       addLog("开始捕获网络流量");
+      // Start polling stats
+      statsInterval = window.setInterval(pollStats, 1000);
+      // Check CA status
+      await checkCA();
     } catch (e) {
       error = `启动失败：${e}`;
       addLog(error);
@@ -49,6 +125,10 @@
       await api.stopCapture();
       running = false;
       addLog("停止捕获网络流量");
+      if (statsInterval) {
+        clearInterval(statsInterval);
+        statsInterval = undefined;
+      }
     } catch (e) {
       error = `停止失败：${e}`;
       addLog(error);
@@ -99,6 +179,10 @@
     const u2 = await listen("capture-stopped", () => {
       running = false;
       addLog("后端已停止捕获");
+      if (statsInterval) {
+        clearInterval(statsInterval);
+        statsInterval = undefined;
+      }
     });
     return () => {
       u1();
@@ -106,8 +190,16 @@
     };
   });
 
+  // Load devices on mount
+  onMount(() => {
+    loadDevices();
+  });
+
   onDestroy(() => {
     unlisten?.();
+    if (statsInterval) {
+      clearInterval(statsInterval);
+    }
   });
 </script>
 
@@ -121,6 +213,24 @@
     onstop={stopCapture}
     ontoggletheme={toggleThemeBtn}
   />
+
+  <div class="toolbar">
+    <label class="toolbar-label">
+      设备：
+      <select bind:value={selectedDevice} class="device-select">
+        {#each devices as dev}
+          <option value={dev}>{dev}</option>
+        {/each}
+      </select>
+    </label>
+    <button class="btn" onclick={exportHAR}>导出 HAR</button>
+    <button class="btn" onclick={installCA}>安装 CA</button>
+    <button class="btn" onclick={uninstallCA}>卸载 CA</button>
+    <button class="btn" onclick={checkCA}>CA 状态</button>
+    <span class="ca-status">
+      CA: {caStatus.installed ? "已安装" : "未安装"}
+    </span>
+  </div>
 
   <div class="main-content">
     <Sidebar
@@ -173,6 +283,51 @@
     display: flex;
     flex: 1;
     overflow: hidden;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  .toolbar-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg);
+  }
+
+  .device-select {
+    padding: 4px 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--fg);
+    font-size: 12px;
+  }
+
+  .btn {
+    padding: 4px 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--fg);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    background: var(--hover);
+  }
+
+  .ca-status {
+    color: var(--fg-dim);
+    margin-left: auto;
   }
 
   .status-bar {
