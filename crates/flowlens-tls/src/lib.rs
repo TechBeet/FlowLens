@@ -72,6 +72,8 @@ pub enum TlsError {
     KeyStorage(String),
     #[error("TLS parsing error: {0}")]
     Parse(#[from] std::str::Utf8Error),
+    #[error("Decryption failed: {0}")]
+    DecryptionFailed(String),
     #[error("Decryption not supported: {0}")]
     NotSupported(String),
     #[error("Certificate pinning detected: {0}")]
@@ -165,18 +167,26 @@ impl InMemoryTlsEngine {
             .map(|ca| ca.certificate_pem.clone())
     }
 
-    pub fn decrypt_stream(&self, _ctx: &MitmContext, data: &[u8]) -> Result<Vec<u8>, TlsError> {
-        // Phase A: real MITM decryption happens in the proxy path via
+    pub fn decrypt_stream(&self, _ctx: &MitmContext, _data: &[u8]) -> Result<Vec<u8>, TlsError> {
+        // Real TLS MITM decryption happens in the async proxy path via
         // MitmTlsAcceptor + MitmTlsConnector + MitmStream::spawn_forwarding().
-        // This sync helper validates the input and returns it for the mock/test
-        // path; callers in the capture pipeline use the async MITM stream for
-        // true decryption. A per-call tokio runtime is intentionally avoided
-        // here because decrypting a single byte slice requires a live TLS
-        // session that only the proxy layer possesses.
-        if data.is_empty() {
-            return Err(TlsError::NotSupported("empty input".into()));
+        // This sync helper cannot reconstruct a live TLS session from a bare
+        // byte slice, so it never returns ciphertext as plaintext (SEC-04).
+        #[cfg(not(feature = "real-decrypt"))]
+        {
+            let _ = _ctx;
+            Err(TlsError::NotSupported(
+                "synchronous decrypt_stream is not supported; use the async MITM proxy path".into(),
+            ))
         }
-        Ok(data.to_vec())
+        #[cfg(feature = "real-decrypt")]
+        {
+            let _ = _ctx;
+            Err(TlsError::DecryptionFailed(
+                "synchronous decrypt_stream requires a live TLS session; use the async MITM proxy path"
+                    .into(),
+            ))
+        }
     }
 
     /// Perform SNI-aware dynamic certificate issuance for a given hostname.
