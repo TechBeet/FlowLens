@@ -1,5 +1,6 @@
 # FlowLens
 
+<!-- TODO: replace your-org/FlowLens with the actual GitHub org/repo once published -->
 [![Build & Test](https://github.com/your-org/FlowLens/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/FlowLens/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/flowlens.svg)](https://crates.io/crates/flowlens)
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org/)
@@ -15,7 +16,7 @@ A native Rust HTTP/HTTPS packet capture and debugging tool with process attribut
 - **Proxy-less**: Captures traffic directly via Npcap, no system proxy needed
 - **Process Attribution**: PID, process name, EXE path attribution via IP Helper API
 - **Multi-Protocol**: HTTP/1.1, HTTP/2, WebSocket, SSE and gRPC parsing
-- **Multiple Frontends**: Terminal UI (ratatui), native GUI (egui), and an optional Svelte/Tauri desktop shell
+- **Multiple Frontends**: Terminal UI (ratatui) and an optional Svelte/Tauri desktop shell (egui GUI removed)
 - **MCP Server**: AI agents can query captured traffic
 - **Portable**: Self-contained, no installation required
 
@@ -36,7 +37,7 @@ API and data model exist but behaviour is incomplete.
 | HTTP/2 parsing | ✅ Implemented | HTTP/2 frame parser with HPACK header decompression |
 | gRPC parsing | ✅ Implemented | 5-byte gRPC frame parser with incremental buffering |
 | CA generation / leaf signing | ✅ Implemented | `rcgen` + `rustls` |
-| TLS MITM decryption | ⚠️ Partial | CA lifecycle works; `decrypt_stream` sync helper still returns input as-is; true decryption via `MitmStream` async proxy path |
+| TLS MITM decryption | ⚠️ Partial | CA lifecycle works; `decrypt_stream` sync helper now returns `NotSupported`/`DecryptionFailed` (no longer a passthrough stub); true decryption via `MitmStream` async proxy path — wiring into capture pipeline in progress (Phase A) |
 | In-memory storage | ✅ Implemented | Ring-buffer backed |
 | SQLite storage | ✅ Implemented | Full CRUD: insert, get, list, delete, query with filters (pid, host, protocol) |
 | HAR export | ✅ Implemented | HAR 1.2 compatible |
@@ -47,9 +48,11 @@ API and data model exist but behaviour is incomplete.
 | Svelte/Tauri shell | ⚠️ Partial | UI complete; backend wiring in progress |
 | WFP kernel driver | ❌ Planned | Design only, no driver shipped |
 
-> ⚠️ **TLS MITM decryption is still a passthrough stub** — the CA lifecycle works,
-> but captured TLS payloads are not yet decrypted. See
-> [docs/roadmap.md](docs/roadmap.md).
+> ⚠️ **TLS MITM decryption is in progress (Phase A)** — the CA lifecycle works,
+> but `decrypt_stream` is a sync helper that cannot reconstruct a live TLS session
+> from a bare byte slice; true decryption requires the async `MitmStream` proxy path,
+> which is being wired into the capture pipeline. See
+> [docs/roadmap.md](docs/roadmap.md) and [docs/review/tls_decryption_design.md](docs/review/tls_decryption_design.md).
 
 ## Platform Support
 
