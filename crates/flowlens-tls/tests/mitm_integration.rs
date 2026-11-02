@@ -1,7 +1,7 @@
 ﻿//! Integration tests for FlowLens MITM TLS engine.
 
 use flowlens_tls::{CaManager, CertIssuer, InMemoryTlsEngine, MitmProxy};
-use flowlens_core::models::{ConnectionKey, TlsVersion, TransportProtocol};
+use flowlens_core::models::{ConnectionKey, TransportProtocol};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -195,6 +195,6 @@ async fn test_plaintext_extraction() {
         tls_version: flowlens_core::models::TlsVersion::Tls12,
         alpn: None,
     };
-    let decrypted = engine.decrypt_stream(&ctx, msg).unwrap();
-    assert_eq!(decrypted, msg);
+    // Synchronous decrypt_stream never returns ciphertext as plaintext.
+    assert!(engine.decrypt_stream(&ctx, msg).is_err());
 }
