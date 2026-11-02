@@ -110,7 +110,7 @@ pub fn compare_requests(a: &HttpRequest, b: &HttpRequest, _url: &str) -> Vec<Fie
         }
     }
 
-    for (key, val_b) in &b_headers {
+    for key in b_headers.keys() {
         if !a_headers.contains_key(key) {
             diffs.push(FieldDiff {
                 field: format!("header:{}", key),
