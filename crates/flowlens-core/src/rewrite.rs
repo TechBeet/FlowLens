@@ -1,6 +1,6 @@
 //! Phase C: Request Rewrite Rule Engine.
 
-use crate::models::{HttpRequest, HttpVersion};
+use crate::models::HttpRequest;
 use regex_lite::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +62,7 @@ impl RewriteEngine {
 
     pub fn add_rule(&mut self, rule: RewriteRule) {
         self.rules.push(rule);
-        self.rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        self.rules.sort_by_key(|a| std::cmp::Reverse(a.priority));
     }
 
     pub fn remove_rule(&mut self, rule_id: &str) -> bool {
@@ -118,10 +118,9 @@ impl RewriteEngine {
         }
 
         if let Some(ref needle) = rule.body_contains {
-            if let Some(ref body) = request.body {
-                if !contains_slice(body, needle) { return None; }
-                matched_conditions.push("body_contains".to_string());
-            } else { return None; }
+            let body_match = request.body.as_ref().map(|b| contains_slice(b, needle)).unwrap_or(false);
+            if !body_match { return None; }
+            matched_conditions.push("body_contains".to_string());
         }
 
         Some(RewriteMatch {
@@ -150,7 +149,7 @@ impl RewriteEngine {
                         }
                         RewriteAction::SetHeader(name, value) => {
                             if let Some(pos) = modified.headers.iter().position(|(k, _)| {
-                                k.eq_ignore_ascii_case(&name)
+                                k.eq_ignore_ascii_case(name)
                             }) {
                                 modified.headers[pos] = (name.clone(), value.clone());
                             } else {
@@ -162,7 +161,7 @@ impl RewriteEngine {
                         }
                         RewriteAction::RemoveHeader(name) => {
                             modified.headers.retain(|(k, _)| {
-                                !k.eq_ignore_ascii_case(&name)
+                                !k.eq_ignore_ascii_case(name)
                             });
                         }
                         RewriteAction::SetBody(body) => {
@@ -202,6 +201,7 @@ fn contains_slice(haystack: &[u8], needle: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{HttpRequest, HttpVersion};
 
     fn make_request(method: &str, url: &str) -> HttpRequest {
         HttpRequest {
