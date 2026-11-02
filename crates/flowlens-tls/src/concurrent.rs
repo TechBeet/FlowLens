@@ -25,7 +25,10 @@ impl ConcurrentDecryptor {
     pub fn new() -> Self {
         Self {
             workers: 0,
-            pool: None,
+            pool: rayon::ThreadPoolBuilder::new()
+                .build()
+                .ok()
+                .map(Arc::new),
         }
     }
 
@@ -38,7 +41,11 @@ impl ConcurrentDecryptor {
                 .ok()
                 .map(Arc::new)
         } else {
-            None
+            // Use the default pool (built once, matching `new()` semantics).
+            rayon::ThreadPoolBuilder::new()
+                .build()
+                .ok()
+                .map(Arc::new)
         };
         Self { workers, pool }
     }
@@ -47,7 +54,8 @@ impl ConcurrentDecryptor {
     ///
     /// Each element of `inputs` is an encrypted byte slice. The returned
     /// vector has the same length; entries are `None` when decryption fails
-    /// for that stream.
+    /// for that stream. The pre-built `rayon::ThreadPool` is reused across
+    /// calls; it is never rebuilt per invocation (SEC-03).
     pub fn decrypt_batch(&self, inputs: &[&[u8]]) -> Vec<Option<Vec<u8>>> {
         if let Some(pool) = &self.pool {
             pool.install(|| {
@@ -164,5 +172,29 @@ mod tests {
             let expected = format!("payload-{}", i);
             assert_eq!(r.as_ref().unwrap(), expected.as_bytes());
         }
+    }
+
+    #[test]
+    fn test_pool_reused_across_calls() {
+        // SEC-03 regression: the Rayon thread pool must be built once and
+        // reused; multiple decrypt_batch calls share the same underlying pool.
+        let decryptor = ConcurrentDecryptor::with_workers(2);
+        assert!(decryptor.pool.is_some(), "pool must be pre-built");
+
+        let inputs: Vec<&[u8]> = vec![b"\\x01a", b"\\x02b", b"\\x03c"];
+        let r1 = decryptor.decrypt_batch(&inputs);
+        let r2 = decryptor.decrypt_batch(&inputs);
+        assert_eq!(r1.len(), 3);
+        assert_eq!(r2.len(), 3);
+        for (a, b) in r1.iter().zip(r2.iter()) {
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn test_default_has_pool() {
+        let decryptor = ConcurrentDecryptor::new();
+        assert_eq!(decryptor.workers(), 0);
+        assert!(decryptor.pool.is_some(), "default pool must be pre-built");
     }
 }
