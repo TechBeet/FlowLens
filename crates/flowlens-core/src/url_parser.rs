@@ -56,8 +56,8 @@ fn parse_host_port(s: &str) -> Option<(String, Option<u16>)> {
         if let Some(end_bracket) = s.find(']') {
             let host = &s[1..end_bracket];
             let remaining = &s[end_bracket + 1..];
-            if remaining.starts_with(':') {
-                let port: u16 = remaining[1..].parse().ok()?;
+            if let Some(stripped) = remaining.strip_prefix(':') {
+                let port: u16 = stripped.parse().ok()?;
                 Some((host.to_string(), Some(port)))
             } else {
                 Some((host.to_string(), None))
