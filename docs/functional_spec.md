@@ -1,8 +1,13 @@
-# ⚠️ NOT A FLOWLENS DOCUMENT
+# ⚠️ NOT A FLOWLENS DOCUMENT — SUPERSEDED / WRONG PROJECT
 
-> **This document is about a DIFFERENT project (Classin video downloader WPF app).**
-> It is misfiled in the FlowLens docs directory. It contains no FlowLens-specific information.
-> FlowLens functional specs are in `docs/review/feature_parity_matrix.md`.
+> **This document describes a DIFFERENT project (Classin video downloader WPF app), not FlowLens.**
+> It was misfiled in the FlowLens docs directory and contains **no FlowLens-specific information**.
+>
+> **Do not use this document as a FlowLens functional specification.** FlowLens functional specs are documented in:
+> - `docs/review/feature_parity_matrix.md` (feature gap analysis)
+> - `docs/roadmap.md` (phase acceptance criteria)
+>
+> **Status**: Superseded. Kept for historical reference only. This document is not part of FlowLens Phase A/B/C documentation.
 
 ---
 
