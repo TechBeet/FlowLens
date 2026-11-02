@@ -115,8 +115,8 @@ pub fn uninstall_ca_from_store(pem: &str) -> Result<(), TlsError> {
                 let cert_len = (*context).cbCertEncoded;
                 if cert_len == der_bytes.len() as u32 {
                     let mut matches = true;
-                    for i in 0..der_bytes.len() {
-                        if *cert_encoding.add(i) != der_bytes[i] { matches = false; break; }
+                    for (i, b) in der_bytes.iter().enumerate() {
+                        if *cert_encoding.add(i) != *b { matches = false; break; }
                     }
                     if matches {
                         CertDeleteCertificateFromStore(context);
@@ -153,8 +153,8 @@ pub fn is_ca_installed(pem: &str) -> bool {
                 let cert_len = (*context).cbCertEncoded;
                 if cert_len == der_bytes.len() as u32 {
                     let mut matches = true;
-                    for i in 0..der_bytes.len() {
-                        if *cert_encoding.add(i) != der_bytes[i] { matches = false; break; }
+                    for (i, b) in der_bytes.iter().enumerate() {
+                        if *cert_encoding.add(i) != *b { matches = false; break; }
                     }
                     if matches {
                         CertFreeCertificateContext(context);
