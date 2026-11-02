@@ -79,6 +79,24 @@ pub enum Commands {
     Cleanup,
     /// Show version
     Version,
+    /// Install the FlowLens CA certificate into the Windows trusted root store
+    InstallCa {
+        /// Subject CN of the generated CA
+        #[arg(long, default_value = "FlowLens CA")]
+        cn: String,
+    },
+    /// Uninstall the FlowLens CA certificate from the Windows trusted root store
+    UninstallCa {
+        /// Subject CN of the CA to uninstall
+        #[arg(long, default_value = "FlowLens CA")]
+        cn: String,
+    },
+    /// Check whether the FlowLens CA is installed in the Windows trusted root store
+    CaStatus {
+        /// Subject CN of the CA to check
+        #[arg(long, default_value = "FlowLens CA")]
+        cn: String,
+    },
     /// Replay requests from a captured session to a target URL
     Replay {
         /// Session ID to replay
