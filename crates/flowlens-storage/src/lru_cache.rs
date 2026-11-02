@@ -83,6 +83,11 @@ impl LruSessionCache {
         self.sessions.read().unwrap().len()
     }
 
+    /// Returns true if the cache contains no sessions.
+    pub fn is_empty(&self) -> bool {
+        self.sessions.read().unwrap().is_empty()
+    }
+
     /// Get the total bytes used by the cache.
     pub fn total_bytes(&self) -> usize {
         *self.current_bytes.read().unwrap()
