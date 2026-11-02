@@ -104,8 +104,7 @@ pub fn build_server_config(cert_pem: &str, key_pem: &str) -> Result<ServerConfig
     if keys.is_empty() {
         return Err(TlsError::CertGeneration("no private key found".into()));
     }
-    let key = PrivateKeyDer::try_from(keys.remove(0))
-        .map_err(|_| TlsError::CertGeneration("invalid private key".into()))?;
+    let key = PrivateKeyDer::from(keys.remove(0));
 
     let cfg = ServerConfig::builder()
         .with_no_client_auth()
@@ -117,7 +116,7 @@ pub fn build_server_config(cert_pem: &str, key_pem: &str) -> Result<ServerConfig
 /// Build a rustls `ClientConfig` trusting the webpki roots.
 pub fn build_client_config() -> Result<ClientConfig, TlsError> {
     let root_store = rustls::RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.iter().cloned().collect(),
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
     let cfg = ClientConfig::builder()
         .with_root_certificates(root_store)
