@@ -10,6 +10,7 @@ default-run = "flowlens"
 flowlens-core = { path = "crates/flowlens-core" }
 flowlens-cli = { path = "crates/flowlens-cli" }
 flowlens-capture = { path = "crates/flowlens-capture" }
+flowlens-tls = { path = "crates/flowlens-tls" }
 flowlens-protocol = { path = "crates/flowlens-protocol" }
 flowlens-ui = { path = "crates/flowlens-ui" }
 flowlens-export = { path = "crates/flowlens-export" }
