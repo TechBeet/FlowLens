@@ -16,7 +16,7 @@
 
 ### 可验收标准
 1. 启动 FlowLens 后能看到所有 HTTP 流量
-2. HTTPS 流量被解密为明文
+2. HTTPS 流量被解密为明文 — ⚠️ **Not met as originally scoped**. The CA lifecycle and leaf-cert signing are implemented, but `decrypt_stream` is a sync helper that cannot reconstruct a live TLS session from a byte slice (returns `NotSupported`/`DecryptionFailed`). True decryption requires the async `MitmStream` proxy path, which is being wired into the capture pipeline during **Phase A**. This criterion is expected to be met after Phase A TLS work lands.
 3. 每条流量能正确归属到 PID/进程名
 4. TUI 能实时展示会话列表和请求详情
 5. 按 PID/Host 过滤正常工作
@@ -76,7 +76,7 @@
 ## Phase 4: WFP Callout 驱动（3-4 周）
 
 ### 目标
-用 WFP Callout 驱动替换 Npcap，实现真正的内核态捕获。
+用 WFP Callout 驱动替换 Npcap，实现真正的内核态捕获。 ⚠️ **Status**: Design-only; no driver code has been written. This phase remains **planned** and is deferred pending Phase A/B/C completion.
 
 ### 功能清单
 - [ ] C/C++ WFP Callout 驱动开发
@@ -128,4 +128,4 @@ Phase 4 ────────────────────────
 
 ---
 
-*Roadmap last updated: 2026/10/30*
+*Roadmap last updated: 2026/11/02*
