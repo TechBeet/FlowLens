@@ -137,7 +137,7 @@ impl UiFrontend for TuiFrontend {
 
                 // 主内容区域 - 表格
                 let events = app.events.lock().unwrap();
-                let header_cells = vec!["时间", "方法", "URL", "状态", "大小"]
+                let header_cells = ["时间", "方法", "URL", "状态", "大小"]
                     .iter()
                     .map(|&c| Cell::from(c).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
                     .collect::<Vec<_>>();
