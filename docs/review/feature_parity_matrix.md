@@ -37,8 +37,8 @@ FlowLens is a **proxy-less** HTTP/HTTPS debugging tool built in Rust, targeting 
 | 2 | **Proxy-less capture** (WFP/Npcap) | ✅ Fully Working | `crates/flowlens-capture/src/pcap.rs` - Npcap engine with auto-fallback to mock | No |
 | 3 | **HTTPS decryption** (root CA, dynamic cert) | ⚠️ **Partial** | CA generation works (`rcgen`), but `decrypt_stream` is passthrough stub (line 158-160 in `flowlens-tls/src/lib.rs`) | **YES** |
 | 4 | Traffic filtering (process/host/url/time) | ✅ Fully Working | `crates/flowlens-core/src/filter.rs` - Full DSL parser with AND/OR/NOT, status ranges, glob patterns | No |
-| 5 | **Breakpoints** (pause request/response) | ⚠️ **Partial** | Library present: `crates/flowlens-core/src/intercept.rs` (`InterceptEngine` with pause/release/modify/list_rules, unit tests passing). Wired into Tauri UI; not yet integrated into CLI pipeline. | No |
-| 6 | **Rewrite rules** (modify headers/body) | ⚠️ **Partial** | Library present: `crates/flowlens-core/src/rewrite.rs` (`RewriteEngine` with add_rule/remove_rule/toggle_rule/matches_request/apply_rules, unit tests passing). Wired into Tauri UI; not yet integrated into CLI pipeline. | No |
+| 5 | **Breakpoints** (pause request/response) | ⚠️ **Partial** | Library present: `crates/flowlens-core/src/intercept.rs` (`InterceptEngine` with pause/release/modify/list_rules, unit tests passing). Not yet integrated into CLI or Tauri pipeline. | No |
+| 6 | **Rewrite rules** (modify headers/body) | ⚠️ **Partial** | Library present: `crates/flowlens-core/src/rewrite.rs` (`RewriteEngine` with add_rule/remove_rule/toggle_rule/matches_request/apply_rules, unit tests passing). Not yet integrated into CLI or Tauri pipeline. | No |
 | 7 | **Compare tool** (side-by-side diff) | ⚠️ **Partial** | Library present: `crates/flowlens-replay/src/diff.rs` (`diff_sessions` with unit tests passing). Logic exists but not wired into CLI/storage pipeline (TODO in `src/main.rs`). | No |
 | 8 | **Replay** (resend requests) | ⚠️ **Partial** | Library present: `crates/flowlens-replay/src/client.rs` (`ReplayClient` with unit tests). CLI command exists in `crates/flowlens-cli` but storage integration is TODO. | No |
 | 9 | **Fuzzer** (random data injection) | ⚠️ **Partial** | Library present: `crates/flowlens-replay/src/fuzzer.rs` (`fuzz_param` with unit tests). Not yet wired into CLI/UI pipeline. | No |
@@ -327,5 +327,23 @@ Once these gaps are closed, FlowLens will not only match HTTP Debugger Pro's cor
 ---
 
 *Last updated: 2026/01/20*  
-*Last verified against source: 2026/11/01*  
+*Last verified against source: 2026/11/02*  
 *Next review: After CLI pipeline integration complete*
+
+---
+
+## Verification Note (2026-11-02)
+
+The following source files were verified to exist and be exported from their respective `lib.rs`:
+
+| Module | File | Exported from `lib.rs`? |
+|--------|------|------------------------|
+| Breakpoints | `crates/flowlens-core/src/intercept.rs` | Yes — `pub use intercept::InterceptEngine` (verified) |
+| Rewrite rules | `crates/flowlens-core/src/rewrite.rs` | Yes — `pub use rewrite::RewriteEngine` (verified) |
+| Diff / compare | `crates/flowlens-replay/src/diff.rs` | Yes — `pub use diff::{diff_sessions, DiffResult, RequestDiff, DiffKind}` (verified) |
+| Replay | `crates/flowlens-replay/src/client.rs` | Yes — `pub use client::ReplayClient` (verified) |
+| Fuzzer | `crates/flowlens-replay/src/fuzzer.rs` | Yes — `pub use fuzzer::{fuzz_param, FuzzCase, FuzzParam, FuzzResult}` (verified) |
+
+**Correction applied**: The earlier matrix draft referenced `crates/flowlens-replay/src/intercept.rs` and `crates/flowlens-replay/src/rewrite.rs` as if they existed. They do **not** exist. Breakpoints and rewrite logic live exclusively in `crates/flowlens-core`. The matrix rows above have been corrected to reflect the actual crate layout.
+
+**TLS decryption status**: `decrypt_stream` in `crates/flowlens-tls/src/lib.rs` now returns `Err(TlsError::NotSupported(...))` or `Err(TlsError::DecryptionFailed(...))` — it is no longer a passthrough stub that returns input as-is. True decryption happens in the async `MitmStream` proxy path (`crates/flowlens-tls/src/mitm.rs`), which is being wired into the capture pipeline during Phase A.
