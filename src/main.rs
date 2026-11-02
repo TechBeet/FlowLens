@@ -18,7 +18,9 @@ use std::time::Duration;
 
 use clap::Parser;
 use flowlens_core::event_bus::EventBus;
+use flowlens_core::models::TrafficEvent;
 use flowlens_storage::StorageEngine;
+use flowlens_tls::CaManager;
 use flowlens_ui::UiFrontend;
 
 fn main() -> anyhow::Result<()> {
@@ -167,6 +169,15 @@ fn main() -> anyhow::Result<()> {
                         let tui = flowlens_ui::TuiFrontend::new();
                         tui.run(bus.clone() as Arc<dyn flowlens_core::event_bus::EventBus>)?;
                     }
+                }
+                flowlens_cli::Commands::InstallCa { cn } => {
+                    flowlens_tls_install_ca(&cn)?;
+                }
+                flowlens_cli::Commands::UninstallCa { cn } => {
+                    flowlens_tls_uninstall_ca(&cn)?;
+                }
+                flowlens_cli::Commands::CaStatus { cn } => {
+                    flowlens_tls_ca_status(&cn)?;
                 }
                 flowlens_cli::Commands::Stop { name } => {
                     tracing::info!("Stopping FlowLens capture: {}", name);
@@ -443,7 +454,7 @@ fn describe_event(event: &flowlens_core::models::TrafficEvent) -> String {
 /// Convert a traffic event into a storable session, when it carries enough
 /// information to be worth persisting (HTTP exchanges and connection life).
 fn session_from_event(
-    event: &flowlens_core::models::TrafficEvent,
+    event: &TrafficEvent,
 ) -> Option<flowlens_core::models::TrafficSession> {
     use flowlens_core::models::*;
 
@@ -505,4 +516,60 @@ fn session_from_event(
         bytes_sent: 0,
         bytes_received: 0,
     })
+}
+
+/// Install a generated FlowLens CA into the Windows trusted root store.
+/// The generated CA PEM is persisted to `flowlens_ca.pem` next to the binary
+/// so it can be reused by `uninstall_ca`.
+fn flowlens_tls_install_ca(cn: &str) -> anyhow::Result<()> {
+    let mut engine = flowlens_tls::InMemoryTlsEngine::new();
+    let ca = engine.generate_ca(cn)?;
+    flowlens_tls::cert_store::install_ca_to_store(&ca.certificate_pem)?;
+
+    let pem_path = std::env::current_dir()?.join("flowlens_ca.pem");
+    std::fs::write(&pem_path, &ca.certificate_pem)?;
+
+    println!(
+        "Installed CA '{}' (fingerprint {}) to Windows trusted root store.\nPEM persisted to {}",
+        cn,
+        ca.fingerprint_sha256,
+        pem_path.display()
+    );
+    Ok(())
+}
+
+/// Uninstall the FlowLens CA from the Windows trusted root store.
+/// Loads the previously persisted PEM (`flowlens_ca.pem`) if present; otherwise
+/// regenerates a CA with the given CN and attempts removal by matching
+/// certificate bytes.
+fn flowlens_tls_uninstall_ca(cn: &str) -> anyhow::Result<()> {
+    let pem_path = std::env::current_dir()?.join("flowlens_ca.pem");
+    let pem = std::fs::read_to_string(&pem_path)
+        .or_else(|_| {
+            // Fallback: generate a CA so we have bytes to match by subject CN
+            // (uninstall matches on full DER equality, so only works if the CN
+            // matches the originally installed CA).
+            let mut engine = flowlens_tls::InMemoryTlsEngine::new();
+            let ca = engine.generate_ca(cn)?;
+            Ok::<String, anyhow::Error>(ca.certificate_pem)
+        })?;
+    flowlens_tls::cert_store::uninstall_ca_from_store(&pem)?;
+    let _ = std::fs::remove_file(&pem_path);
+    println!("Uninstalled CA '{}' from Windows trusted root store.", cn);
+    Ok(())
+}
+
+/// Check whether the FlowLens CA is installed in the Windows trusted root store.
+fn flowlens_tls_ca_status(cn: &str) -> anyhow::Result<()> {
+    let pem_path = std::env::current_dir()?.join("flowlens_ca.pem");
+    let installed = std::fs::read_to_string(&pem_path)
+        .ok()
+        .map(|pem| flowlens_tls::cert_store::is_ca_installed(&pem))
+        .unwrap_or(false);
+    if installed {
+        println!("CA '{}' IS installed in the Windows trusted root store.", cn);
+    } else {
+        println!("CA '{}' is NOT installed in the Windows trusted root store.", cn);
+    }
+    Ok(())
 }
