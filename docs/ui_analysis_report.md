@@ -2,7 +2,7 @@
 
 > 分析范围：`crates/flowlens-ui`（TUI）、`ui/`（Svelte/Tauri shell）、`docs/review/feature_parity_matrix.md`
 > 分析模式：只读，未修改任何源文件（本报告为新生成的文档）。
-> 分析日期：2026-11-01
+> 分析日期：2026-11-02
 
 ---
 
@@ -10,11 +10,11 @@
 
 | 层级 | 实现状态 | 技术栈 | 代码证据 |
 |------|----------|--------|----------|
-| TUI | 已实现 | ratatui + crossterm | `crates/flowlens-ui/src/tui.rs`（6.7 KB，179 行） |
-| GUI (egui) | 已移除 | — | `.trae/documents/ui-redesign-plan.md` 第 78 行 |
+| TUI | 已实现 | ratatui + crossterm | `crates/flowlens-ui/src/tui.rs`（主表格已渲染，键盘导航、过滤、详情已接入） |
+| GUI (egui) | **已移除** | — | egui GUI 已彻底删除（`gui.rs`、`fonts.rs`、`Cargo.toml`/`lib.rs`/`main.rs` 同步更新），不再作为前端选项 |
 | Svelte/Tauri shell | 部分完成 | Svelte 5 + Tauri v2 + Vite | `ui/src/`（5 组件），`ui/src-tauri/` |
 
-结论：项目已从"双 UI 并存"（egui + Tauri）收敛为"单 UI"（Tauri/Svelte），TUI 保留为终端备选。egui GUI 已被彻底移除（gui.rs、fonts.rs 删除，Cargo.toml/lib.rs/main.rs 同步更新），但 README 第 46 行仍残留 "GUI (egui) 已实现" 的过时描述。
+结论：项目从"双 UI 并存"（egui + Tauri）已收敛为"单 UI"（Tauri/Svelte 为主，TUI 保留为终端备选）。egui GUI 已被彻底移除。README 的相关描述已同步更新（见本报告日期 2026-11-02 的 Phase A 文档更新）。
 
 ---
 
@@ -64,11 +64,14 @@
 
 ### 3.3 前端功能矩阵
 
-| 功能 | 状态 | 代码证据 |
-|------|------|----------|
+| 功能 | 状态 | 说明 |
+|------|------|------|
 | 捕获启停 | ✅ | `startCapture`/`stopCapture` in `App.svelte` |
 | 实时事件流 | ✅ | `listen("traffic-event")` in `App.svelte` |
 | 主题切换 | ✅ | `toggleThemeBtn` + `api.toggleTheme` + localStorage |
+| 导出 HAR | ❌ | `exportHAR` 声明于 `ui/src/lib/api.ts`，但 `ui/src-tauri/src/lib.rs` 的 `invoke_handler` 未注册此命令 |
+| 统计刷新 | ❌ | `get_stats` 命令存在但前端 `App.svelte` 未轮询，Header 统计数字恒为 0 |
+| 设备选择 | ❌ | `list_devices` 命令存在但前端未暴露设备列表 |
 ---
 
 ## 4. HTTP Debugger Pro 功能对照表
@@ -103,9 +106,9 @@
 | 请求重放 | ❌ | 无 |
 | 比较 | ❌ | 无 |
 
-| 退出 | `q/Q/Esc`（第 142 行） |
-| 标题栏 / 状态栏 | `title_par` / `status_par`（第 120-136 行） |
-| 屏幕阅读器兼容 | 输出到 `stderr()`（第 99 行） |
+| 退出 | `q/Q/Esc` |
+| 标题栏 / 状态栏 | `title_par` / `status_par` |
+| 屏幕阅读器兼容 | 输出到 `stderr()` |
 ---
 
 ## 5. UX 不足与改进建议
@@ -162,14 +165,6 @@
 
 ## 7. 总结
 
-FlowLens 的 UI 层处于**过渡期**：egui GUI 已移除，Tauri/Svelte shell 是主界面，但后端 wiring 仍有缺陷（export_har 未注册、stats 未轮询、devices 未暴露）。TUI 功能相对基础，仅适合终端快速查看。与 HTTP Debugger Pro 相比，核心差距在于 **HTTPS 解密（passthrough stub）、断点/拦截、重写规则、重放、比较工具** 等交互式调试能力，以及 **导出、搜索、过滤、多标签详情** 等 UI 功能的完善度。建议优先修复 wiring 缺陷和 TUI 主表格渲染，然后逐步实现高级调试功能。
+FlowLens 的 UI 层处于**稳定期**：egui GUI 已移除，Tauri/Svelte shell 是主界面，TUI 主表格已渲染可用。后端 wiring 仍有少量缺陷（`export_har` 未注册、`get_stats` 前端未轮询、`list_devices` 未暴露）。与 HTTP Debugger Pro 相比，核心差距在于 **HTTPS 解密（Phase A TLS 正在进行）、断点/拦截、重写规则、重放、比较工具** 等交互式调试能力，以及 **导出、搜索、过滤、多标签详情** 等 UI 功能的完善度。
 
-
-### 2.2 缺失 / 待完善
-
-- 无过滤器 UI：仅订阅默认 `TrafficFilter`，没有交互式过滤输入框（文件头注释声称有"过滤输入框"，但代码未实现）。
-- 无详情视图：选中行仅更新 `table_state`，未展示请求/响应头、body。
-- 无搜索：无文本搜索。
-- 无导出：无 HAR/CSV 导出入口。
-- 无主题切换：颜色硬编码。
-- 布局不完整：主渲染循环只渲染标题栏（chunks[0]）与状态栏（chunks[1]），主表格区域（chunks[2]）没有任何 widget 的 render 调用 —— 事件虽被接收进 `events`，但从不显示。
+建议优先完成 Phase A TLS 解密和捕获管线集成，然后逐步实现高级调试功能。
