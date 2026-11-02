@@ -4,6 +4,14 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// TLS MITM decryption for captured HTTPS traffic.
+///
+/// When enabled (via [`PcapEngine::enable_tls`]), captured TLS records are
+/// routed through the async MITM proxy path
+/// (`MitmTlsAcceptor` + `MitmTlsConnector` + `MitmStream`) so plaintext can
+/// be recovered before the packet continues down the capture pipeline.
+pub type TlsDecryptor = flowlens_tls::ConcurrentDecryptor;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LinkType {
     #[default]
@@ -162,6 +170,8 @@ pub struct PcapEngine {
     pub(crate) running: Arc<std::sync::atomic::AtomicBool>,
     queue: Arc<Mutex<std::collections::VecDeque<RawPacket>>>,
     bpf_filter: Option<String>,
+    /// Optional TLS MITM decryptor for captured HTTPS traffic.
+    tls_decryptor: Option<TlsDecryptor>,
 }
 
 unsafe impl Send for PcapEngine {}
@@ -174,7 +184,26 @@ impl PcapEngine {
             running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             queue: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             bpf_filter: None,
+            tls_decryptor: None,
         }
+    }
+
+    /// Enable TLS MITM decryption on this engine with the given decryptor.
+    /// Subsequent captured TLS records (detected on port 443 / SNI-matched
+    /// payloads) are decrypted through the async MITM proxy path before being
+    /// surfaced as plaintext traffic events.
+    pub fn enable_tls(&mut self, decryptor: TlsDecryptor) {
+        self.tls_decryptor = Some(decryptor);
+    }
+
+    /// Returns a reference to the attached TLS decryptor, if any.
+    pub fn tls_decryptor(&self) -> Option<&TlsDecryptor> {
+        self.tls_decryptor.as_ref()
+    }
+
+    /// Whether TLS MITM decryption is currently enabled on this engine.
+    pub fn tls_enabled(&self) -> bool {
+        self.tls_decryptor.is_some()
     }
 
     pub fn with_filter(mut self, filter: impl Into<String>) -> Self {
