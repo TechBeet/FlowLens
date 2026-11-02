@@ -1,8 +1,13 @@
-# ⚠️ NOT A FLOWLENS DOCUMENT
+# ⚠️ NOT A FLOWLENS DOCUMENT — SUPERSEDED / WRONG PROJECT
 
-> **This document is about a DIFFERENT project (Classin video downloader WPF UI).**
-> It is misfiled in the FlowLens docs directory. It contains no FlowLens-specific information.
-> FlowLens UI specs are in `docs/ui_analysis_report.md`.
+> **This document describes a DIFFERENT project (Classin video downloader WPF UI), not FlowLens.**
+> It was misfiled in the FlowLens docs directory and contains **no FlowLens-specific information**.
+>
+> **Do not use this document as a FlowLens UI specification.** FlowLens UI design and status are documented in:
+> - `docs/ui_analysis_report.md` (current TUI/Tauri state)
+> - `docs/review/feature_parity_matrix.md` (feature gap analysis)
+>
+> **Status**: Superseded. Kept for historical reference only. This document is not part of FlowLens Phase A/B/C documentation.
 
 ---
 
