@@ -5,6 +5,12 @@ edition = "2021"
 description = "TLS MITM, certificate management, and decryption for FlowLens"
 license = "MIT"
 
+[features]
+# When enabled, consumers opt into real TLS decryption semantics. When
+# disabled (default), `decrypt_stream` returns TlsError::NotSupported so
+# ciphertext can never be mistaken for plaintext (SEC-04).
+real-decrypt = []
+
 [dependencies]
 flowlens-core = { path = "../flowlens-core" }
 tokio = { version = "1", features = ["full"] }
