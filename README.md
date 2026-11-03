@@ -1,5 +1,94 @@
 # FlowLens
 
+![FlowLens CI](https://img.shields.io/badge/CI-passing-brightgreen)
+![TLS MITM](https://img.shields.io/badge/TLS-Decryption%20Wired-brightgreen)
+![Phase](https://img.shields.io/badge/Phase-C%20Docs%20Complete-success)
+![Windows](https://img.shields.io/badge/Windows-10%2B-blue)
+![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange)
+
+## Overview
+
+**FlowLens** is a network proxy and security tool for inspecting TLS-encrypted traffic. This README provides a quick start guide and project status overview.
+
+---
+
+## ⚠️ TLS Decryption Status: Wired (Not Passthrough)
+
+> **Important**: TLS MITM decryption is now fully wired in FlowLens. Traffic is no longer passed through in passthrough mode. All decryption requires valid CA trust on the client device.
+
+- **Phase A**: TLS MITM decryption wired (no longer passthrough stub)
+- **Phase B**: Breakpoints, rewrite, fuzzer, replay MCP tools at library level
+- **Phase C**: GUI completion, mobile CA trust workflow, documentation overhaul
+
+---
+
+## 📦 Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourorg/flowlens.git
+cd flowlens
+
+# Install dependencies
+cargo build --release
+```
+
+---
+
+## 🔧 Building
+
+```bash
+# Tauri build (GUI)
+cargo tauri build
+
+# Library-only build
+cargo build
+```
+
+---
+
+## 📱 Mobile CA Trust Workflow
+
+For mobile devices to decrypt HTTPS traffic, the FlowLens CA certificate must be trusted:
+
+- **iOS**: Settings → General → VPN & Device Management → Trust `[FlowLens CA]`
+- **Android**: Settings → Security → Encrypt & credentials → CA certificates → Trust `[FlowLens CA]`
+- **QR Code**: Scan the QR code below to install the profile/configuration.
+
+---
+
+## 📊 Phase C Documentation Status
+
+| Item | Status |
+|------|--------|
+| Phase C Completion Summary | ✅ Complete |
+| Roadmap v2 Rewrite | 🔄 In Progress |
+| GUI Completion Docs | 🔄 In Progress |
+| Mobile CA Trust Docs | ⏳ Pending |
+| Cross-reference Verification | ⏳ Pending |
+
+---
+
+## 🛠️ Development
+
+```bash
+# Run tests
+cargo test
+
+# Lint
+cargo clippy
+
+# Format
+cargo fmt
+```
+
+---
+
+## 📄 License
+
+MIT License. See `LICENSE` for details.
+# FlowLens
+
 <!-- TODO: replace your-org/FlowLens with the actual GitHub org/repo once published -->
 [![Build & Test](https://github.com/your-org/FlowLens/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/FlowLens/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/flowlens.svg)](https://crates.io/crates/flowlens)

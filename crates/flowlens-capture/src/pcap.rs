@@ -254,8 +254,7 @@ impl PcapEngine {
             .map_err(|e| anyhow::anyhow!(e))?;
 
         if let Some(f) = self.bpf_filter.clone() {
-            cap.filter(&f, true)
-                .map_err(|e| anyhow::anyhow!(e))?;
+            cap.filter(&f, true).map_err(|e| anyhow::anyhow!(e))?;
         }
 
         self.running
@@ -368,14 +367,8 @@ mod tests {
         let local_ips = local_ipv4_addresses();
         if let Some(local_ip) = local_ips.first() {
             let local = IpAddr::V4(*local_ip);
-            assert_eq!(
-                classify_direction(local, remote),
-                PacketDirection::Outbound
-            );
-            assert_eq!(
-                classify_direction(remote, local),
-                PacketDirection::Inbound
-            );
+            assert_eq!(classify_direction(local, remote), PacketDirection::Outbound);
+            assert_eq!(classify_direction(remote, local), PacketDirection::Inbound);
         }
         // Neither side local => Unknown
         assert_eq!(
@@ -397,7 +390,7 @@ mod tests {
         let mut pkt = vec![0xffu8; 6]; // dst mac
         pkt.extend_from_slice(&[0x02, 0x00, 0x00, 0x00, 0x00, 0x01]); // src mac
         pkt.extend_from_slice(&[0x08, 0x00]); // ethertype IPv4
-        // IPv4 header: src at bytes 26-29, dst at bytes 30-33
+                                              // IPv4 header: src at bytes 26-29, dst at bytes 30-33
         pkt.extend_from_slice(&[0x45, 0x00, 0x00, 0x28, 0, 1, 0, 0, 64, 6, 0, 0]);
         pkt.extend_from_slice(&[192, 168, 1, 10]); // src IP
         pkt.extend_from_slice(&[93, 184, 216, 34]); // dst IP
