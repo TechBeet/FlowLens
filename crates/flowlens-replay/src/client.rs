@@ -50,7 +50,9 @@ impl ReplayClient {
         let target_url = self.resolve_url(&request.url)?;
 
         // Parse method
-        let method: reqwest::Method = request.method.parse()
+        let method: reqwest::Method = request
+            .method
+            .parse()
             .map_err(|_| ReplayError::UnsupportedMethod(request.method.clone()))?;
 
         let mut req_builder = self.client.request(method, &target_url);
@@ -72,7 +74,11 @@ impl ReplayClient {
 
         // Collect response
         let status_code = resp.status().as_u16();
-        let status_text = resp.status().canonical_reason().unwrap_or("Unknown").to_string();
+        let status_text = resp
+            .status()
+            .canonical_reason()
+            .unwrap_or("Unknown")
+            .to_string();
         let version = match resp.version() {
             reqwest::Version::HTTP_10 => HttpVersion::Http10,
             reqwest::Version::HTTP_11 => HttpVersion::Http11,
@@ -96,7 +102,11 @@ impl ReplayClient {
             status_text,
             version,
             headers,
-            body: if body_size > 0 { Some(body_bytes) } else { None },
+            body: if body_size > 0 {
+                Some(body_bytes)
+            } else {
+                None
+            },
             body_size,
             timestamp: 0,
         })
@@ -119,7 +129,10 @@ impl ReplayClient {
         if let Some(ref base) = self.base_url_override {
             let parsed = url::Url::parse(original_url)?;
             let path_query = parsed.path();
-            let query = parsed.query().map(|q| format!("?{}", q)).unwrap_or_default();
+            let query = parsed
+                .query()
+                .map(|q| format!("?{}", q))
+                .unwrap_or_default();
 
             let base_parsed = url::Url::parse(base)?;
             let resolved = format!(
@@ -144,8 +157,8 @@ impl Default for ReplayClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::net::TcpListener;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     /// Simple echo server for testing
     async fn spawn_echo_server() -> (String, tokio::task::JoinHandle<()>) {
@@ -189,31 +202,38 @@ mod tests {
     #[tokio::test]
     async fn test_base_url_override() {
         let client = ReplayClient::new().with_base_url("http://override.example.com".to_string());
-        assert_eq!(client.base_url_override, Some("http://override.example.com".to_string()));
+        assert_eq!(
+            client.base_url_override,
+            Some("http://override.example.com".to_string())
+        );
     }
 
     #[tokio::test]
     async fn test_resolve_url_no_override() {
         let client = ReplayClient::new();
-        let url = client.resolve_url("http://example.com/path?query=1").unwrap();
+        let url = client
+            .resolve_url("http://example.com/path?query=1")
+            .unwrap();
         assert_eq!(url, "http://example.com/path?query=1");
     }
 
     #[tokio::test]
     async fn test_resolve_url_with_override() {
         let client = ReplayClient::new().with_base_url("http://override.com".to_string());
-        let url = client.resolve_url("http://original.com/path?query=1").unwrap();
+        let url = client
+            .resolve_url("http://original.com/path?query=1")
+            .unwrap();
         assert_eq!(url, "http://override.com/path?query=1");
     }
 
     #[tokio::test]
     async fn test_replay_to_echo_server() {
         let (url, _handle) = spawn_echo_server().await;
-        
+
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let client = ReplayClient::new();
-        
+
         let request = HttpRequest {
             method: "GET".to_string(),
             url: url.clone(),
