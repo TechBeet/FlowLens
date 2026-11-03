@@ -123,7 +123,11 @@ impl UiFrontend for TuiFrontend {
                     "⏱ FlowLens — 网络流量分析器"
                 };
                 let title_par = Paragraph::new(title_text)
-                    .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                    .style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
                     .block(Block::default().borders(Borders::ALL).title(" 流光"));
                 frame.render_widget(title_par, chunks[0]);
 
@@ -139,10 +143,20 @@ impl UiFrontend for TuiFrontend {
                 let events = app.events.lock().unwrap();
                 let header_cells = ["时间", "方法", "URL", "状态", "大小"]
                     .iter()
-                    .map(|&c| Cell::from(c).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .map(|&c| {
+                        Cell::from(c).style(
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    })
                     .collect::<Vec<_>>();
                 let header_row = Row::new(header_cells)
-                    .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                    .style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
                     .bottom_margin(1);
 
                 let rows: Vec<Row> = events
@@ -176,11 +190,19 @@ impl UiFrontend for TuiFrontend {
                         Block::default()
                             .borders(Borders::ALL)
                             .title(" 流量事件 ")
-                            .border_style(Style::default().fg(if app.debug_mode { Color::Magenta } else { Color::DarkGray })),
+                            .border_style(Style::default().fg(if app.debug_mode {
+                                Color::Magenta
+                            } else {
+                                Color::DarkGray
+                            })),
                     )
                     .highlight_style(
                         Style::default()
-                            .bg(if app.debug_mode { Color::Magenta } else { Color::Blue })
+                            .bg(if app.debug_mode {
+                                Color::Magenta
+                            } else {
+                                Color::Blue
+                            })
                             .fg(Color::White)
                             .add_modifier(Modifier::BOLD),
                     )
@@ -197,12 +219,19 @@ impl UiFrontend for TuiFrontend {
                     KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => break,
                     KeyCode::Down | KeyCode::Char('j') => {
                         let current = app.table_state.selected().unwrap_or(0);
-                        let max = app.events.lock().map(|e| e.len()).unwrap_or(0).saturating_sub(1);
-                        app.table_state.select(Some(if current >= max { 0 } else { current + 1 }));
+                        let max = app
+                            .events
+                            .lock()
+                            .map(|e| e.len())
+                            .unwrap_or(0)
+                            .saturating_sub(1);
+                        app.table_state
+                            .select(Some(if current >= max { 0 } else { current + 1 }));
                     }
                     KeyCode::Up | KeyCode::Char('k') => {
                         let current = app.table_state.selected().unwrap_or(0);
-                        app.table_state.select(Some(if current == 0 { 0 } else { current - 1 }));
+                        app.table_state
+                            .select(Some(if current == 0 { 0 } else { current - 1 }));
                     }
                     KeyCode::Char('f') | KeyCode::Char('F') => {
                         app.events.lock().unwrap().clear();
@@ -210,14 +239,20 @@ impl UiFrontend for TuiFrontend {
                     }
                     KeyCode::Char('d') | KeyCode::Char('D') => {
                         app.debug_mode = !app.debug_mode;
-                        app.status_msg = if app.debug_mode { "调试模式已开启" } else { "调试模式已关闭" }.to_string();
+                        app.status_msg = if app.debug_mode {
+                            "调试模式已开启"
+                        } else {
+                            "调试模式已关闭"
+                        }
+                        .to_string();
                     }
                     _ => {}
                 }
             }
         }
 
-        app.running.store(false, std::sync::atomic::Ordering::SeqCst);
+        app.running
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
         disable_raw_mode()?;
         Ok(())
