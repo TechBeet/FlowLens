@@ -469,7 +469,6 @@ pub async fn check_ca_status(pem: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-#[tauri::command]
 pub async fn pause_session(state: State<'_, AppState>, session_id: u64) -> Result<(), String> {
     state
         .intercept
@@ -524,13 +523,16 @@ pub async fn add_rewrite_rule(
     let rewrite_rule: flowlens_core::RewriteRule = serde_json::from_value(rule)
         .map_err(|e| format!("Invalid rule JSON: {}", e))?;
     
-    state.rewrite_engine.add_rule(rewrite_rule);
+    let mut engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
+    engine.add_rule(rewrite_rule);
+    drop(engine);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn remove_rewrite_rule(state: State<'_, AppState>, id: String) -> Result<bool, String> {
-    Ok(state.rewrite_engine.remove_rule(&id))
+    let mut engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
+    Ok(engine.remove_rule(&id))
 }
 
 #[tauri::command]
@@ -539,16 +541,18 @@ pub async fn toggle_rewrite_rule(
     id: String,
     enabled: bool,
 ) -> Result<bool, String> {
-    Ok(state.rewrite_engine.toggle_rule(&id, enabled))
+    let mut engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
+    Ok(engine.toggle_rule(&id, enabled))
 }
 
 #[tauri::command]
 pub async fn list_rewrite_rules(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
-    let rules = state.rewrite_engine.list_rules();
-    rules
+    let engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
+    let rules = engine.list_rules().to_vec();
+    Ok(rules
         .iter()
-        .map(|r| serde_json::to_value(r).map_err(|e| e.to_string()))
-        .collect::<Result<Vec<_>, _>>()
+        .map(|r| serde_json::to_value(r).map_err(|e| e.to_string())?)
+        .collect())
 }
 
 #[tauri::command]
@@ -585,6 +589,7 @@ pub async fn compare_sessions(
     Ok(result)
 }
 
+#[tauri::command]
 pub async fn get_ca_pem() -> Result<Option<String>, String> {
     Ok(None)
 }
