@@ -549,10 +549,11 @@ pub async fn toggle_rewrite_rule(
 pub async fn list_rewrite_rules(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
     let engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
     let rules = engine.list_rules().to_vec();
-    Ok(rules
-        .iter()
-        .map(|r| serde_json::to_value(r).map_err(|e| e.to_string())?)
-        .collect())
+    let mut result = Vec::new();
+    for r in rules {
+        result.push(serde_json::to_value(r).map_err(|e| e.to_string())?);
+    }
+    Ok(result)
 }
 
 #[tauri::command]
