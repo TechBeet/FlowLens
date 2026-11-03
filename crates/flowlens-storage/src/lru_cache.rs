@@ -41,22 +41,22 @@ impl LruSessionCache {
 
     fn insert_with_id(&self, session: &TrafficSession, id: SessionId) -> anyhow::Result<()> {
         let serialized_size = self.estimate_session_size(session);
-        
+
         while *self.current_bytes.read().unwrap() + serialized_size > self.capacity_bytes
             && !self.lru_order.read().unwrap().is_empty()
         {
             self.evict_least_recently_used()?;
         }
-        
+
         {
             let mut sessions = self.sessions.write().unwrap();
             let mut lru_order = self.lru_order.write().unwrap();
-            
+
             sessions.insert(id, (session.clone(), SystemTime::now()));
             lru_order.push(id);
             *self.current_bytes.write().unwrap() += serialized_size;
         }
-        
+
         Ok(())
     }
 
@@ -64,7 +64,7 @@ impl LruSessionCache {
     pub fn get(&self, id: SessionId) -> anyhow::Result<Option<TrafficSession>> {
         let mut sessions = self.sessions.write().unwrap();
         let mut lru_order = self.lru_order.write().unwrap();
-        
+
         if let Some((session, _)) = sessions.get(&id) {
             let cloned = session.clone();
             if let Some(pos) = lru_order.iter().position(|&x| x == id) {
@@ -106,7 +106,7 @@ impl LruSessionCache {
     fn evict_least_recently_used(&self) -> anyhow::Result<()> {
         let mut sessions = self.sessions.write().unwrap();
         let mut lru_order = self.lru_order.write().unwrap();
-        
+
         if !lru_order.is_empty() {
             let id = lru_order.remove(0);
             if let Some((session, _)) = sessions.remove(&id) {
@@ -118,14 +118,18 @@ impl LruSessionCache {
     }
 
     fn estimate_session_size(&self, session: &TrafficSession) -> usize {
-        serde_json::to_string(session).unwrap_or_else(|_| "{}".to_string()).len()
+        serde_json::to_string(session)
+            .unwrap_or_else(|_| "{}".to_string())
+            .len()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flowlens_core::models::{ConnectionKey, ProcessInfo, TransportProtocol, ProtocolKind, ProcessArch, MatchQuality};
+    use flowlens_core::models::{
+        ConnectionKey, MatchQuality, ProcessArch, ProcessInfo, ProtocolKind, TransportProtocol,
+    };
 
     fn create_test_session(id: u64, pad: usize) -> TrafficSession {
         TrafficSession {
@@ -163,12 +167,12 @@ mod tests {
     #[test]
     fn test_lru_eviction_on_overflow() {
         let cache = LruSessionCache::new(1000);
-        
+
         for i in 0..5 {
             let session = create_test_session(i, 200);
             cache.insert(&session).unwrap();
         }
-        
+
         assert!(cache.len() <= 5);
         assert!(cache.total_bytes() <= 1000);
     }
@@ -178,19 +182,19 @@ mod tests {
         let session1 = create_test_session(1, 10);
         let size = serde_json::to_string(&session1).unwrap().len();
         let cache = LruSessionCache::new(size * 3);
-        
+
         let session2 = create_test_session(2, 10);
         let session3 = create_test_session(3, 10);
-        
+
         cache.insert(&session1).unwrap();
         cache.insert(&session2).unwrap();
         cache.insert(&session3).unwrap();
-        
+
         cache.get(SessionId(2)).unwrap();
-        
+
         let session4 = create_test_session(4, 10);
         cache.insert(&session4).unwrap();
-        
+
         assert!(cache.get(SessionId(1)).unwrap().is_none());
         assert!(cache.get(SessionId(2)).unwrap().is_some());
         assert!(cache.get(SessionId(3)).unwrap().is_some());
@@ -200,15 +204,15 @@ mod tests {
     #[test]
     fn test_total_bytes_tracking() {
         let cache = LruSessionCache::new(10000);
-        
+
         let session1 = create_test_session(1, 10);
         let session2 = create_test_session(2, 20);
-        
+
         cache.insert(&session1).unwrap();
         let b1 = cache.total_bytes();
         cache.insert(&session2).unwrap();
         let b2 = cache.total_bytes();
-        
+
         assert!(b2 > b1);
         assert!(b2 >= b1);
     }
@@ -216,17 +220,17 @@ mod tests {
     #[test]
     fn test_evict_to_fit() {
         let cache = LruSessionCache::new(500);
-        
+
         let session1 = create_test_session(1, 200);
         let session2 = create_test_session(2, 200);
         let session3 = create_test_session(3, 200);
-        
+
         cache.insert(&session1).unwrap();
         cache.insert(&session2).unwrap();
         cache.insert(&session3).unwrap();
-        
+
         cache.evict_to_fit().unwrap();
-        
+
         assert!(cache.total_bytes() <= 500);
     }
 }

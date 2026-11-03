@@ -4,8 +4,8 @@
 //!   GET /api/* AND status>=200 AND status<400
 //!   POST host=github.com PID=1234
 
-use thiserror::Error;
 use crate::models::TrafficRow;
+use thiserror::Error;
 
 #[derive(Debug, Clone)]
 pub enum FilterExpr {
@@ -47,14 +47,27 @@ pub fn parse_filter(expr: &str) -> Result<FilterExpr, ParseError> {
     }
     let (consumed, expr) = parse_or(&tokens, 0)?;
     if consumed != tokens.len() {
-        return Err(ParseError::UnexpectedToken(format!("trailing tokens after position {consumed}")));
+        return Err(ParseError::UnexpectedToken(format!(
+            "trailing tokens after position {consumed}"
+        )));
     }
     Ok(expr)
 }
 
 #[derive(Debug, Clone)]
 enum Token {
-    Word(String), Eq, Ne, Le, Lt, Ge, Gt, And, Or, Not, LPar, RPar,
+    Word(String),
+    Eq,
+    Ne,
+    Le,
+    Lt,
+    Ge,
+    Gt,
+    And,
+    Or,
+    Not,
+    LPar,
+    RPar,
 }
 
 fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
@@ -65,15 +78,29 @@ fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
             '(' => tokens.push(Token::LPar),
             ')' => tokens.push(Token::RPar),
             '=' => tokens.push(Token::Eq),
-            '!' if chars.peek() == Some(&'=') => { chars.next(); tokens.push(Token::Ne); }
-            '<' if chars.peek() == Some(&'=') => { chars.next(); tokens.push(Token::Le); }
+            '!' if chars.peek() == Some(&'=') => {
+                chars.next();
+                tokens.push(Token::Ne);
+            }
+            '<' if chars.peek() == Some(&'=') => {
+                chars.next();
+                tokens.push(Token::Le);
+            }
             '<' => tokens.push(Token::Lt),
-            '>' if chars.peek() == Some(&'=') => { chars.next(); tokens.push(Token::Ge); }
+            '>' if chars.peek() == Some(&'=') => {
+                chars.next();
+                tokens.push(Token::Ge);
+            }
             '>' => tokens.push(Token::Gt),
             'a'..='z' | 'A'..='Z' | '_' | '.' | '-' => {
                 let mut word = String::from(c);
                 while let Some(&nc) = chars.peek() {
-                    if nc.is_alphanumeric() || nc == '_' || nc == '.' || nc == '-' { word.push(nc); chars.next(); } else { break; }
+                    if nc.is_alphanumeric() || nc == '_' || nc == '.' || nc == '-' {
+                        word.push(nc);
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
                 match word.to_uppercase().as_str() {
                     "AND" => tokens.push(Token::And),
@@ -85,14 +112,24 @@ fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
             '/' | '*' => {
                 let mut glob_str = String::from(c);
                 while let Some(&nc) = chars.peek() {
-                    if !nc.is_whitespace() { glob_str.push(nc); chars.next(); } else { break; }
+                    if !nc.is_whitespace() {
+                        glob_str.push(nc);
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
                 tokens.push(Token::Word(glob_str));
             }
             '0'..='9' => {
                 let mut num = String::from(c);
                 while let Some(&nc) = chars.peek() {
-                    if nc.is_ascii_digit() { num.push(nc); chars.next(); } else { break; }
+                    if nc.is_ascii_digit() {
+                        num.push(nc);
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
                 tokens.push(Token::Word(num));
             }
@@ -145,20 +182,26 @@ fn parse_not(tokens: &[Token], pos: usize) -> Result<(usize, FilterExpr), ParseE
 }
 
 fn parse_primary(tokens: &[Token], pos: usize) -> Result<(usize, FilterExpr), ParseError> {
-    if pos >= tokens.len() { return Err(ParseError::UnexpectedEnd); }
+    if pos >= tokens.len() {
+        return Err(ParseError::UnexpectedEnd);
+    }
     match &tokens[pos] {
         Token::LPar => {
             let (pos, expr) = parse_or(tokens, pos + 1)?;
             if pos < tokens.len() && matches!(&tokens[pos], Token::RPar) {
                 Ok((pos + 1, expr))
-            } else { Err(ParseError::UnexpectedEnd) }
+            } else {
+                Err(ParseError::UnexpectedEnd)
+            }
         }
         _ => parse_predicate(tokens, pos),
     }
 }
 
 fn parse_predicate(tokens: &[Token], pos: usize) -> Result<(usize, FilterExpr), ParseError> {
-    if pos >= tokens.len() { return Err(ParseError::UnexpectedEnd); }
+    if pos >= tokens.len() {
+        return Err(ParseError::UnexpectedEnd);
+    }
     let word = match &tokens[pos] {
         Token::Word(w) => w.clone(),
         _ => return Err(ParseError::unexpected(&format!("{:?}", tokens[pos]))),
@@ -168,12 +211,17 @@ fn parse_predicate(tokens: &[Token], pos: usize) -> Result<(usize, FilterExpr), 
     if word.eq_ignore_ascii_case("status") && pos < tokens.len() {
         let op = &tokens[pos];
         let val = match &tokens.get(pos + 1) {
-            Some(Token::Word(v)) => v.parse::<u16>().map_err(|_| ParseError::InvalidRange(v.clone()))?,
+            Some(Token::Word(v)) => v
+                .parse::<u16>()
+                .map_err(|_| ParseError::InvalidRange(v.clone()))?,
             _ => return Err(ParseError::InvalidRange("expected status value".into())),
         };
         let pos = pos + 2;
         match op {
-            Token::Gt => Ok((pos, FilterExpr::StatusCodeRange(val.saturating_add(1), u16::MAX))),
+            Token::Gt => Ok((
+                pos,
+                FilterExpr::StatusCodeRange(val.saturating_add(1), u16::MAX),
+            )),
             Token::Ge => Ok((pos, FilterExpr::StatusCodeRange(val, u16::MAX))),
             Token::Lt => Ok((pos, FilterExpr::StatusCodeRange(0, val.saturating_sub(1)))),
             Token::Le => Ok((pos, FilterExpr::StatusCodeRange(0, val))),
@@ -191,7 +239,11 @@ fn parse_predicate(tokens: &[Token], pos: usize) -> Result<(usize, FilterExpr), 
     } else if word.starts_with('/') || word.contains('*') {
         let pattern = glob::Pattern::new(&word)?;
         Ok((pos, FilterExpr::PathGlob(pattern)))
-    } else if word.len() <= 7 && word.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
+    } else if word.len() <= 7
+        && word
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+    {
         Ok((pos, FilterExpr::Method(word)))
     } else {
         Err(ParseError::UnknownField(word))
@@ -214,7 +266,13 @@ pub fn eval_filter(row: &TrafficRow, filter: &FilterExpr) -> bool {
 }
 
 fn parse_status_code(status: &str) -> Option<u16> {
-    status.trim().chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().ok()
+    status
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .ok()
 }
 #[cfg(test)]
 mod tests {
@@ -222,10 +280,15 @@ mod tests {
 
     fn mk_row(method: &str, path: &str, status: &str) -> TrafficRow {
         TrafficRow {
-            timestamp: 0, event_type: "http".into(),
-            src_addr: "127.0.0.1:1234".into(), dst_addr: "93.184.216.34:443".into(),
-            method: method.into(), path: path.into(), status: status.into(),
-            duration_ms: 0, body_size: 0,
+            timestamp: 0,
+            event_type: "http".into(),
+            src_addr: "127.0.0.1:1234".into(),
+            dst_addr: "93.184.216.34:443".into(),
+            method: method.into(),
+            path: path.into(),
+            status: status.into(),
+            duration_ms: 0,
+            body_size: 0,
         }
     }
 
@@ -292,19 +355,28 @@ mod tests {
     #[test]
     fn test_eval_status_range_pass() {
         let row = mk_row("GET", "/api", "200 OK");
-        assert!(eval_filter(&row, &parse_filter("status>=200 AND status<300").unwrap()));
+        assert!(eval_filter(
+            &row,
+            &parse_filter("status>=200 AND status<300").unwrap()
+        ));
     }
 
     #[test]
     fn test_eval_status_range_fail() {
         let row = mk_row("GET", "/api", "500 Error");
-        assert!(!eval_filter(&row, &parse_filter("status>=200 AND status<300").unwrap()));
+        assert!(!eval_filter(
+            &row,
+            &parse_filter("status>=200 AND status<300").unwrap()
+        ));
     }
 
     #[test]
     fn test_eval_and_complex() {
         let row = mk_row("GET", "/api/users", "200 OK");
-        assert!(eval_filter(&row, &parse_filter("GET /api/* AND status>=200").unwrap()));
+        assert!(eval_filter(
+            &row,
+            &parse_filter("GET /api/* AND status>=200").unwrap()
+        ));
     }
 
     #[test]
@@ -335,4 +407,3 @@ mod tests {
         assert!(matches!(expr, FilterExpr::And(_)));
     }
 }
-

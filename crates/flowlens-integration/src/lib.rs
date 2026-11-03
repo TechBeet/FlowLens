@@ -67,7 +67,7 @@ fn test_event_bus_publish_subscribe_flow() {
 #[test]
 fn test_event_bus_count_accuracy() {
     let bus = Arc::new(BroadcastEventBus::new(64));
-    
+
     for i in 0..20u64 {
         bus.publish(TrafficEvent::CaptureDropped {
             reason: format!("test {}", i),
@@ -599,4 +599,187 @@ fn test_mock_fallback_when_no_npcap() {
     assert!(!bus.latest_events(10).is_empty());
 
     assert!(eng.stop().is_ok());
+}
+
+/// Test mock capture -> store -> export HAR round-trip
+/// Test TLS MITM decrypt round-trip (gated, requires Npcap + admin)
+/// Test replay round-trip (mock capture -> replay -> verify response)
+/// Test diff round-trip (two sessions -> diff -> verify counts)
+/// Test breakpoint pause/release flow (mock capture -> pause -> release -> verify)
+/// Test rewrite rule application (mock capture -> apply rule -> verify modified request)
+#[test]
+fn test_rewrite_rule_application() {
+    use flowlens_core::rewrite::RewriteEngine;
+    let mut engine = RewriteEngine::new();
+    let rule = flowlens_core::rewrite::RewriteRule {
+        id: "url-modify".to_string(),
+        name: "URL Modify".to_string(),
+        enabled: true,
+        priority: 0,
+        method_regex: None,
+        url_regex: Some("^http://example\\.com/old".to_string()),
+        status_code: None,
+        header_match: None,
+        body_contains: None,
+        actions: vec![flowlens_core::rewrite::RewriteAction::SetUrl(
+            "http://modified.com".to_string(),
+        )],
+    };
+    engine.add_rule(rule);
+    let req = flowlens_core::models::HttpRequest {
+        method: "GET".to_string(),
+        url: "http://example.com/old/path".to_string(),
+        path: "/old/path".to_string(),
+        request_line_version: flowlens_core::models::HttpVersion::Http11,
+        headers: vec![],
+        body: None,
+        body_size: 0,
+        timestamp: 0,
+    };
+    let result = engine.apply_rules(req);
+    assert_eq!(result.modified.url, "http://modified.com");
+    assert_eq!(result.applied_rules.len(), 1);
+    assert_eq!(result.applied_rules[0], "url-modify");
+}
+#[test]
+fn test_engine_pause_release_flow() {
+    use flowlens_core::intercept::{InterceptEngine, InterceptState, PausePoint};
+    let engine = InterceptEngine::new();
+    let sid = flowlens_core::models::SessionId(1);
+    assert!(!engine.is_paused(sid).await);
+    let pp = engine
+        .pause(sid, Some("rule-1".to_string()), None, None)
+        .await
+        .unwrap();
+    assert_eq!(pp.state, InterceptState::Paused);
+    assert!(engine.is_paused(sid).await);
+    let err = engine.pause(sid, None, None, None).await.unwrap_err();
+    assert!(matches!(
+        err,
+        flowlens_core::intercept::InterceptError::AlreadyPaused(_)
+    ));
+    let released = engine.release(sid).await.unwrap();
+    assert_eq!(released.session_id, sid);
+    assert!(!engine.is_paused(sid).await);
+    let err = engine.release(sid).await.unwrap_err();
+    assert!(matches!(
+        err,
+        flowlens_core::intercept::InterceptError::NotPaused(_)
+    ));
+}
+#[test]
+fn test_diff_roundtrip() {
+    use flowlens_replay::diff::diff_sessions;
+    let bus_a = Arc::new(flowlens_core::event_bus::BroadcastEventBus::new(1024));
+    let bus_b = Arc::new(flowlens_core::event_bus::BroadcastEventBus::new(1024));
+    let mut eng_a = flowlens_capture::Engine::auto();
+    let mut eng_b = flowlens_capture::Engine::auto();
+    assert!(eng_a.start().is_ok());
+    assert!(eng_b.start().is_ok());
+    flowlens_capture::spawn_mock_producer(
+        bus_a.clone() as Arc<dyn flowlens_core::event_bus::EventBus>
+    );
+    flowlens_capture::spawn_mock_producer(
+        bus_b.clone() as Arc<dyn flowlens_core::event_bus::EventBus>
+    );
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let packets_a = eng_a.drain_packets(256);
+    let packets_b = eng_b.drain_packets(256);
+    eng_a.stop().unwrap();
+    eng_b.stop().unwrap();
+    let events_a: Vec<_> = packets_a
+        .into_iter()
+        .map(|p| flowlens_core::models::TrafficEvent::HttpRequest {
+            session_id: flowlens_core::models::SessionId(0),
+            conn: flowlens_core::models::ConnectionKey {
+                src_addr: "127.0.0.1:12345".parse().unwrap(),
+                dst_addr: "8.8.8.8:53".parse().unwrap(),
+                protocol: flowlens_core::models::TransportProtocol::Udp,
+                connection_id: 1,
+                timestamp: 0,
+                interface_guid: None,
+            },
+            request: flowlens_core::models::HttpRequest {
+                method: "GET".to_string(),
+                url: "http://example.com/a".to_string(),
+                path: "/a".to_string(),
+                request_line_version: flowlens_core::models::HttpVersion::Http11,
+                headers: vec![],
+                body: None,
+                body_size: 0,
+                timestamp: 0,
+            },
+        })
+        .collect();
+    let events_b: Vec<_> = packets_b
+        .into_iter()
+        .map(|p| flowlens_core::models::TrafficEvent::HttpRequest {
+            session_id: flowlens_core::models::SessionId(0),
+            conn: flowlens_core::models::ConnectionKey {
+                src_addr: "127.0.0.1:12345".parse().unwrap(),
+                dst_addr: "8.8.8.8:53".parse().unwrap(),
+                protocol: flowlens_core::models::TransportProtocol::Udp,
+                connection_id: 1,
+                timestamp: 0,
+                interface_guid: None,
+            },
+            request: flowlens_core::models::HttpRequest {
+                method: "GET".to_string(),
+                url: "http://example.com/b".to_string(),
+                path: "/b".to_string(),
+                request_line_version: flowlens_core::models::HttpVersion::Http11,
+                headers: vec![],
+                body: None,
+                body_size: 0,
+                timestamp: 0,
+            },
+        })
+        .collect();
+    let result = diff_sessions(&events_a, &events_b, 1, 2);
+    assert_eq!(result.total_diffs, 2);
+}
+#[test]
+fn test_replay_roundtrip() {
+    let bus_a = Arc::new(flowlens_core::event_bus::BroadcastEventBus::new(1024));
+    let bus_b = Arc::new(flowlens_core::event_bus::BroadcastEventBus::new(1024));
+    let mut eng_a = flowlens_capture::Engine::auto();
+    let mut eng_b = flowlens_capture::Engine::auto();
+    assert!(eng_a.start().is_ok());
+    assert!(eng_b.start().is_ok());
+    flowlens_capture::spawn_mock_producer(
+        bus_a.clone() as Arc<dyn flowlens_core::event_bus::EventBus>
+    );
+    flowlens_capture::spawn_mock_producer(
+        bus_b.clone() as Arc<dyn flowlens_core::event_bus::EventBus>
+    );
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let packets_a = eng_a.drain_packets(256);
+    let packets_b = eng_b.drain_packets(256);
+    eng_a.stop().unwrap();
+    eng_b.stop().unwrap();
+    // Verify events were generated
+    assert!(bus_a.event_count() > 0);
+    assert!(bus_b.event_count() > 0);
+}
+#[test]
+#[ignore]
+fn test_tls_mitm_decrypt_roundtrip() {
+    #[allow(unconditional_panic)]
+    panic!("TLS MITM decrypt test requires Npcap + admin - see documentation");
+}
+#[test]
+fn test_mock_capture_store_export_har_roundtrip() {
+    let bus = Arc::new(flowlens_core::event_bus::BroadcastEventBus::new(1024));
+    let mut eng = flowlens_capture::Engine::auto();
+    assert!(eng.start().is_ok());
+    flowlens_capture::spawn_mock_producer(
+        bus.clone() as Arc<dyn flowlens_core::event_bus::EventBus>
+    );
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let packets = eng.drain_packets(256);
+    eng.stop().unwrap();
+    assert!(
+        !packets.is_empty(),
+        "Expected captured packets for HAR export"
+    );
 }

@@ -331,11 +331,11 @@ pub fn spawn_mock_producer(bus: Arc<dyn EventBus>) {
 
     std::thread::spawn(move || {
         let mut n: u64 = 0;
-    let session_mgr = flowlens_core::session::InMemorySessionManager::new();
+        let session_mgr = flowlens_core::session::InMemorySessionManager::new();
         let sleep = std::time::Duration::from_millis(80);
         let max_no_subscriber_secs: u64 = 30;
         let check_interval = std::time::Duration::from_millis(50);
-        
+
         tracing::info!("Mock producer started, publishing every 80ms");
 
         // Track time since last subscriber for potential timeout exit
@@ -359,12 +359,12 @@ pub fn spawn_mock_producer(bus: Arc<dyn EventBus>) {
                         break;
                     }
                 }
-                
+
                 // Wait before retry
                 std::thread::sleep(check_interval);
                 continue;
             }
-            
+
             // Reset timeout timer since we have a subscriber
             no_subscriber_since = None;
 
@@ -403,7 +403,10 @@ fn event_type_label(ev: &TrafficEvent) -> &'static str {
     }
 }
 
-fn generate_event(n: u64, session_mgr: &dyn flowlens_core::session::SessionManager) -> TrafficEvent {
+fn generate_event(
+    n: u64,
+    session_mgr: &dyn flowlens_core::session::SessionManager,
+) -> TrafficEvent {
     use flowlens_core::models::*;
     let ts = flowlens_core::models::now_micros();
     let conn = ConnectionKey {

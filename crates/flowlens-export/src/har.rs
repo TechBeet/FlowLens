@@ -1,35 +1,59 @@
 //! HAR 1.2 exporter for FlowLens
 
+use chrono::TimeZone;
 use flowlens_core::models::{HttpVersion, TrafficRow, TrafficSession};
 use serde::{Deserialize, Serialize};
-use chrono::TimeZone;
 
 fn format_datetime(ts: i64) -> String {
     let secs = ts / 1_000_000;
     let nsecs = ((ts % 1_000_000) * 1000) as u32;
-    let dt = chrono::Utc.timestamp_opt(secs, nsecs).single().unwrap_or_default();
+    let dt = chrono::Utc
+        .timestamp_opt(secs, nsecs)
+        .single()
+        .unwrap_or_default();
     dt.format("%Y-%m-%dT%H:%M:%S.%3fZ").to_string()
 }
 
 fn duration_ms(start: i64, end: i64) -> i64 {
-    if start > 0 && end > start { (end - start) / 1000 } else { 0 }
+    if start > 0 && end > start {
+        (end - start) / 1000
+    } else {
+        0
+    }
 }
 
 fn headers_to_har(headers: &[(String, String)]) -> Vec<HareHeader> {
-    headers.iter().map(|(k, v)| HareHeader { name: k.clone(), value: v.clone(), comment: None }).collect()
+    headers
+        .iter()
+        .map(|(k, v)| HareHeader {
+            name: k.clone(),
+            value: v.clone(),
+            comment: None,
+        })
+        .collect()
 }
 
 fn extract_query(url: &str) -> Vec<HareQueryString> {
-    if !url.contains('?') { return vec![]; }
+    if !url.contains('?') {
+        return vec![];
+    }
     let (_, query) = url.split_once('?').unwrap_or(("", url));
-    query.split('&').filter_map(|pair| {
-        let (k, v) = pair.split_once('=')?;
-        Some(HareQueryString { name: k.to_string(), value: v.to_string() })
-    }).collect()
+    query
+        .split('&')
+        .filter_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            Some(HareQueryString {
+                name: k.to_string(),
+                value: v.to_string(),
+            })
+        })
+        .collect()
 }
 
 fn content_type(headers: &[(String, String)]) -> String {
-    headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+    headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
         .map(|(_, v)| v.split(';').next().unwrap_or(v).trim().to_string())
         .unwrap_or_else(|| "application/octet-stream".to_string())
 }
@@ -257,8 +281,14 @@ impl HarExporter {
             sessions.push(TrafficSession {
                 session_id: flowlens_core::models::SessionId(0),
                 conn: flowlens_core::models::ConnectionKey {
-                    src_addr: r.src_addr.parse().unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
-                    dst_addr: r.dst_addr.parse().unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
+                    src_addr: r
+                        .src_addr
+                        .parse()
+                        .unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
+                    dst_addr: r
+                        .dst_addr
+                        .parse()
+                        .unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
                     protocol: flowlens_core::models::TransportProtocol::Tcp,
                     connection_id: 0,
                     timestamp: r.timestamp,

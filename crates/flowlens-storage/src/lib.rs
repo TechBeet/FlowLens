@@ -153,7 +153,7 @@ impl SqliteStorage {
             .max_connections(5)
             .connect_with(options)
             .await?;
-        
+
         // Create a dedicated current-thread runtime for sync wrapper methods.
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -347,7 +347,7 @@ impl StorageEngine for SqliteStorage {
         let data = self.rt.block_on(async {
             sqlx::query_scalar::<_, String>("SELECT event_data FROM sessions WHERE id = ?")
                 .bind(id.0 as i64)
-                 .fetch_optional(self.pool.as_ref())
+                .fetch_optional(self.pool.as_ref())
                 .await
         })?;
 
@@ -495,7 +495,10 @@ mod tests {
         let id = storage.insert_session(&session).unwrap();
         assert!(id.0 > 0);
 
-        let got = storage.get_session(id).unwrap().expect("session must exist");
+        let got = storage
+            .get_session(id)
+            .unwrap()
+            .expect("session must exist");
         assert_eq!(got.session_id, id);
         assert_eq!(got.process.pid, 1234);
         assert_eq!(got.process.name, "test.exe");

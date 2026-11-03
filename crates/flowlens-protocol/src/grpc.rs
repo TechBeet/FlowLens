@@ -192,7 +192,10 @@ mod tests {
     fn test_parse_path_service_method() {
         let mut parser = GrpcParser::new();
         parser.set_path("/flowlens.Greeter/SayHello");
-        assert_eq!(parser.rpc_name().as_deref(), Some("flowlens.Greeter/SayHello"));
+        assert_eq!(
+            parser.rpc_name().as_deref(),
+            Some("flowlens.Greeter/SayHello")
+        );
         assert_eq!(parser.service_name().as_deref(), Some("flowlens.Greeter"));
         assert_eq!(parser.method_name().as_deref(), Some("SayHello"));
     }

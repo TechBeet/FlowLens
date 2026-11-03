@@ -1,8 +1,8 @@
 //! HTTP fuzzing utilities for FlowLens.
 
 use flowlens_core::models::HttpRequest;
-use serde::{Deserialize, Serialize};
 use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
 
 /// Fuzz parameter types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +68,8 @@ pub fn fuzz_param(request: &HttpRequest, param: FuzzParam) -> FuzzResult {
             for pattern in INJECTION_PATTERNS {
                 let modified = request.clone();
                 let fuzz_value = pattern.to_string();
-                let description = format!("Query param '{}' fuzz with: {}", key, truncate(pattern, 30));
+                let description =
+                    format!("Query param '{}' fuzz with: {}", key, truncate(pattern, 30));
 
                 cases.push(FuzzCase {
                     original_request: request.clone(),
@@ -98,7 +99,11 @@ pub fn fuzz_param(request: &HttpRequest, param: FuzzParam) -> FuzzResult {
             for pattern in INJECTION_PATTERNS {
                 let modified = request.clone();
                 let fuzz_value = pattern.to_string();
-                let description = format!("Body field '{}' fuzz with: {}", field, truncate(pattern, 30));
+                let description = format!(
+                    "Body field '{}' fuzz with: {}",
+                    field,
+                    truncate(pattern, 30)
+                );
 
                 cases.push(FuzzCase {
                     original_request: request.clone(),
