@@ -6,9 +6,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use flowlens_core::models::SessionId;
 use flowlens_core::intercept::InterceptEngine;
-use flowlens_core::rewrite::{RewriteEngine, RewriteAction, RewriteRule};
+use flowlens_core::models::SessionId;
+use flowlens_core::rewrite::{RewriteAction, RewriteEngine, RewriteRule};
 use flowlens_replay::{diff, ReplayClient};
 use flowlens_storage::StorageEngine;
 
@@ -258,9 +258,7 @@ impl McpTool for ModifySessionTool {
             .http_request
             .ok_or_else(|| anyhow::anyhow!("No HTTP request found"))?;
         if !header.is_empty() {
-            new_request
-                .headers
-                .retain(|(k, _)| k != &header);
+            new_request.headers.retain(|(k, _)| k != &header);
             new_request.headers.push((header.clone(), value.clone()));
         }
         let intercept = self.state.intercept.lock().await;
@@ -274,7 +272,6 @@ impl McpTool for ModifySessionTool {
         }))
     }
 }
-
 
 /// AddRewriteRuleTool - adds a rewrite rule.
 pub struct AddRewriteRuleTool {

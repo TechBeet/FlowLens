@@ -10,7 +10,10 @@ pub mod json_rpc;
 pub mod server;
 pub mod tools;
 
-pub use advanced::{AdvancedState, DiffTool, PauseSessionTool, ReleaseSessionTool, ModifySessionTool, AddRewriteRuleTool, ListRewriteRulesTool, ReplayTool};
+pub use advanced::{
+    AddRewriteRuleTool, AdvancedState, DiffTool, ListRewriteRulesTool, ModifySessionTool,
+    PauseSessionTool, ReleaseSessionTool, ReplayTool,
+};
 pub use json_rpc::{ErrorCode, JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 pub use server::McpServerImpl;
 pub use tools::{
