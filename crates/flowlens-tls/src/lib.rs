@@ -9,8 +9,8 @@ pub use mitm::{
     MitmTlsConnector,
 };
 
-use std::sync::RwLock;
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 use flowlens_core::models::{ConnectionKey, TlsVersion};
 use rcgen::{
@@ -238,10 +238,10 @@ impl Default for InMemoryTlsEngine {
     fn default() -> Self {
         Self::new()
     }
-#[cfg(not(windows))]
-fn check_installed_windows(_cn: &str) -> bool {
-    false
-}
+    #[cfg(not(windows))]
+    fn check_installed_windows(_cn: &str) -> bool {
+        false
+    }
 }
 
 impl CaManager for InMemoryTlsEngine {
@@ -255,7 +255,14 @@ impl CaManager for InMemoryTlsEngine {
         uninstall_ca_windows(&ca.certificate_pem)
     }
     fn check_installed(&self, cn: &str) -> bool {
-        if self.ca.read().unwrap().as_ref().map(|ca| ca.cn == cn).unwrap_or(false) {
+        if self
+            .ca
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|ca| ca.cn == cn)
+            .unwrap_or(false)
+        {
             return true;
         }
         check_installed_windows(cn)
@@ -301,14 +308,22 @@ impl CertIssuer for InMemoryTlsEngine {
 
 /// Trait for MITM proxy engines providing SNI-aware TLS termination.
 pub trait MitmProxy: CertIssuer {
-    fn build_server_config(&self, cert_pem: &str, key_pem: &str) -> Result<rustls::ServerConfig, TlsError>;
+    fn build_server_config(
+        &self,
+        cert_pem: &str,
+        key_pem: &str,
+    ) -> Result<rustls::ServerConfig, TlsError>;
     fn build_client_config(&self) -> Result<rustls::ClientConfig, TlsError>;
     fn extract_sni_from_client_hello(&self, data: &[u8]) -> Option<String>;
     fn issue_for_sni(&self, sni: &str) -> Result<(String, String), TlsError>;
 }
 
 impl MitmProxy for InMemoryTlsEngine {
-    fn build_server_config(&self, cert_pem: &str, key_pem: &str) -> Result<rustls::ServerConfig, TlsError> {
+    fn build_server_config(
+        &self,
+        cert_pem: &str,
+        key_pem: &str,
+    ) -> Result<rustls::ServerConfig, TlsError> {
         crate::mitm::build_server_config(cert_pem, key_pem)
     }
     fn build_client_config(&self) -> Result<rustls::ClientConfig, TlsError> {
@@ -340,8 +355,6 @@ pub struct MitmContext {
     pub tls_version: TlsVersion,
     pub alpn: Option<String>,
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -389,7 +402,9 @@ mod tests {
 
         // Reconstruct a KeyPair from the returned private key DER.
         let leaf_key = KeyPair::from_der_and_sign_algo(
-            &rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(key.der.clone())),
+            &rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+                key.der.clone(),
+            )),
             &PKCS_ECDSA_P256_SHA256,
         )
         .expect("leaf key DER must parse with ECDSA P-256");

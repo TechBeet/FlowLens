@@ -25,10 +25,7 @@ impl ConcurrentDecryptor {
     pub fn new() -> Self {
         Self {
             workers: 0,
-            pool: rayon::ThreadPoolBuilder::new()
-                .build()
-                .ok()
-                .map(Arc::new),
+            pool: rayon::ThreadPoolBuilder::new().build().ok().map(Arc::new),
         }
     }
 
@@ -42,10 +39,7 @@ impl ConcurrentDecryptor {
                 .map(Arc::new)
         } else {
             // Use the default pool (built once, matching `new()` semantics).
-            rayon::ThreadPoolBuilder::new()
-                .build()
-                .ok()
-                .map(Arc::new)
+            rayon::ThreadPoolBuilder::new().build().ok().map(Arc::new)
         };
         Self { workers, pool }
     }
@@ -109,8 +103,7 @@ mod tests {
         let inputs: Vec<&[u8]> = vec![b"\x01hello", b"\x02world", b"\x03rust", b"\x04tls"];
 
         let parallel = decryptor.decrypt_batch(&inputs);
-        let sequential: Vec<Option<Vec<u8>>> =
-            inputs.iter().map(|d| decrypt_one(d)).collect();
+        let sequential: Vec<Option<Vec<u8>>> = inputs.iter().map(|d| decrypt_one(d)).collect();
 
         assert_eq!(parallel.len(), sequential.len());
         for (p, s) in parallel.iter().zip(sequential.iter()) {

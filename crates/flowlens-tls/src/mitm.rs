@@ -98,7 +98,8 @@ pub fn build_server_config(cert_pem: &str, key_pem: &str) -> Result<ServerConfig
     let mut key_reader = Cursor::new(key_pem);
     let mut keys = Vec::new();
     for item in rustls_pemfile::pkcs8_private_keys(&mut key_reader) {
-        let key = item.map_err(|_| TlsError::CertGeneration("failed to parse private key".into()))?;
+        let key =
+            item.map_err(|_| TlsError::CertGeneration("failed to parse private key".into()))?;
         keys.push(key);
     }
     if keys.is_empty() {
