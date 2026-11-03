@@ -439,11 +439,7 @@ fn describe_event(event: &flowlens_core::models::TrafficEvent) -> String {
             format!("WS      {:?} ({} bytes)", frame.opcode, frame.payload.len())
         }
         TrafficEvent::SseEvent { event, .. } => format!("SSE     {}", event.data),
-        TrafficEvent::GrpcCall { call, .. } => format!(
-            "GRPC    {} {}",
-            call.service,
-            call.method
-        ),
+        TrafficEvent::GrpcCall { call, .. } => format!("GRPC    {} {}", call.service, call.method),
         TrafficEvent::PacketReceived { data, .. } => {
             format!("PACKET  {} bytes", data.len())
         }
@@ -453,9 +449,7 @@ fn describe_event(event: &flowlens_core::models::TrafficEvent) -> String {
 
 /// Convert a traffic event into a storable session, when it carries enough
 /// information to be worth persisting (HTTP exchanges and connection life).
-fn session_from_event(
-    event: &TrafficEvent,
-) -> Option<flowlens_core::models::TrafficSession> {
+fn session_from_event(event: &TrafficEvent) -> Option<flowlens_core::models::TrafficSession> {
     use flowlens_core::models::*;
 
     let conn = match event {
@@ -483,16 +477,12 @@ fn session_from_event(
     };
 
     let (protocol, http_request, http_response) = match event {
-        TrafficEvent::HttpRequest { request, .. } => (
-            ProtocolKind::Http1,
-            Some(request.clone()),
-            None,
-        ),
-        TrafficEvent::HttpResponse { response, .. } => (
-            ProtocolKind::Http1,
-            None,
-            Some(response.clone()),
-        ),
+        TrafficEvent::HttpRequest { request, .. } => {
+            (ProtocolKind::Http1, Some(request.clone()), None)
+        }
+        TrafficEvent::HttpResponse { response, .. } => {
+            (ProtocolKind::Http1, None, Some(response.clone()))
+        }
         TrafficEvent::TlsHandshake { .. } => (ProtocolKind::Unknown, None, None),
         TrafficEvent::WebSocketFrame { .. } => (ProtocolKind::WebSocket, None, None),
         TrafficEvent::SseEvent { .. } => (ProtocolKind::Sse, None, None),
@@ -544,15 +534,14 @@ fn flowlens_tls_install_ca(cn: &str) -> anyhow::Result<()> {
 /// certificate bytes.
 fn flowlens_tls_uninstall_ca(cn: &str) -> anyhow::Result<()> {
     let pem_path = std::env::current_dir()?.join("flowlens_ca.pem");
-    let pem = std::fs::read_to_string(&pem_path)
-        .or_else(|_| {
-            // Fallback: generate a CA so we have bytes to match by subject CN
-            // (uninstall matches on full DER equality, so only works if the CN
-            // matches the originally installed CA).
-            let mut engine = flowlens_tls::InMemoryTlsEngine::new();
-            let ca = engine.generate_ca(cn)?;
-            Ok::<String, anyhow::Error>(ca.certificate_pem)
-        })?;
+    let pem = std::fs::read_to_string(&pem_path).or_else(|_| {
+        // Fallback: generate a CA so we have bytes to match by subject CN
+        // (uninstall matches on full DER equality, so only works if the CN
+        // matches the originally installed CA).
+        let mut engine = flowlens_tls::InMemoryTlsEngine::new();
+        let ca = engine.generate_ca(cn)?;
+        Ok::<String, anyhow::Error>(ca.certificate_pem)
+    })?;
     flowlens_tls::cert_store::uninstall_ca_from_store(&pem)?;
     let _ = std::fs::remove_file(&pem_path);
     println!("Uninstalled CA '{}' from Windows trusted root store.", cn);
@@ -567,9 +556,15 @@ fn flowlens_tls_ca_status(cn: &str) -> anyhow::Result<()> {
         .map(|pem| flowlens_tls::cert_store::is_ca_installed(&pem))
         .unwrap_or(false);
     if installed {
-        println!("CA '{}' IS installed in the Windows trusted root store.", cn);
+        println!(
+            "CA '{}' IS installed in the Windows trusted root store.",
+            cn
+        );
     } else {
-        println!("CA '{}' is NOT installed in the Windows trusted root store.", cn);
+        println!(
+            "CA '{}' is NOT installed in the Windows trusted root store.",
+            cn
+        );
     }
     Ok(())
 }
