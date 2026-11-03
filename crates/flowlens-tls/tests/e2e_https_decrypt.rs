@@ -1,13 +1,13 @@
 //! End-to-end HTTPS decryption test through the async MITM proxy path.
 use flowlens_tls::{
-    build_server_config, InMemoryTlsEngine, MitmTlsAcceptor, MitmTlsConnector,
-    MitmStream, CaManager,
+    build_server_config, CaManager, InMemoryTlsEngine, MitmStream, MitmTlsAcceptor,
+    MitmTlsConnector,
 };
+use rustls::pki_types::ServerName;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
-use rustls::pki_types::ServerName;
 
 const TEST_DOMAIN: &str = "flowlens-mitm.test";
 const PLAINTEXT: &str = "flowlens-tls-e2e-plaintext";
