@@ -14,7 +14,7 @@ pub struct AppState {
     pub running: Arc<AtomicBool>,
     pub pump_task: Mutex<Option<JoinHandle<()>>>,
     pub intercept: Arc<InterceptEngine>,
-    pub rewrite_engine: RewriteEngine,
+    pub rewrite_engine: Mutex<RewriteEngine>,
 }
 
 impl AppState {
@@ -26,7 +26,7 @@ impl AppState {
             running: Arc::new(AtomicBool::new(false)),
             pump_task: Mutex::new(None),
             intercept: Arc::new(InterceptEngine::new()),
-            rewrite_engine: RewriteEngine::new(),
+            rewrite_engine: Mutex::new(RewriteEngine::new()),
         }
     }
 }
