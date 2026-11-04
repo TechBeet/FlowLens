@@ -569,7 +569,7 @@ pub async fn replay_request(
         .await
         .ok_or_else(|| format!("Request not found for session {}", session_id))?;
     
-    let client = ReplayClient::new();
+    let client = ReplayClient::new().map_err(|e| e.to_string())?;
     let response = client.replay(&request).await.map_err(|e| e.to_string())?;
     
     serde_json::to_value(response).map_err(|e| e.to_string())
