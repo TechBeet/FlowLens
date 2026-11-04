@@ -130,7 +130,7 @@ impl AttributionEngine for InMemoryAttributionEngine {
             };
             self.active_connections
                 .write()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .insert(conn.clone(), process.clone());
             return Some(process);
         }

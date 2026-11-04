@@ -66,7 +66,7 @@ impl McpTool for ReplayTool {
         let request = session
             .http_request
             .ok_or_else(|| anyhow::anyhow!("No HTTP request found in session {}", session_id))?;
-        let client = ReplayClient::new();
+        let client = ReplayClient::new()?;
         let result = client.replay(&request).await?;
         Ok(serde_json::json!({
             "session_id": session_id,

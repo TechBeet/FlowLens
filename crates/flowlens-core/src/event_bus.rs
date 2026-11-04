@@ -86,7 +86,7 @@ impl BroadcastEventBus {
 
     /// Get latest events snapshot (for --events reporting)
     pub fn get_latest_events(&self, limit: usize) -> Vec<TrafficRow> {
-        let guard = self.recent.lock().unwrap();
+        let guard = self.recent.lock().unwrap_or_else(|e| e.into_inner());
         let start = guard.len().saturating_sub(limit);
         guard[start..].to_vec()
     }

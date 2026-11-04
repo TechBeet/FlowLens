@@ -73,10 +73,6 @@ fn parse_host_port(s: &str) -> Option<(String, Option<u16>)> {
     } else {
         // Handle regular host:port or IPv4:port
         // Use strip_prefix to extract port when possible
-        if let Some(_) = s.strip_prefix(':') {
-            // Bare :prefix - not valid, fall through to rfind case
-            // (strip_prefix matched but we need proper port extraction)
-        }
         if let Some(colon_pos) = s.rfind(':') {
             let potential_port_str = &s[colon_pos + 1..];
             if let Ok(port) = potential_port_str.parse::<u16>() {

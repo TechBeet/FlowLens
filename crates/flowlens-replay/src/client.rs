@@ -16,27 +16,25 @@ pub struct ReplayClient {
 
 impl ReplayClient {
     /// Create a new ReplayClient
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Result<Self, ReplayError> {
+        Ok(Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(30))
                 .danger_accept_invalid_certs(true)
-                .build()
-                .expect("Failed to create HTTP client"),
+                .build()?,
             base_url_override: None,
-        }
+        })
     }
 
     /// Create a new ReplayClient with custom timeout
-    pub fn with_timeout(timeout_secs: u64) -> Self {
-        Self {
+    pub fn with_timeout(timeout_secs: u64) -> Result<Self, ReplayError> {
+        Ok(Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(timeout_secs))
                 .danger_accept_invalid_certs(true)
-                .build()
-                .expect("Failed to create HTTP client"),
+                .build()?,
             base_url_override: None,
-        }
+        })
     }
 
     /// Set a base URL override for replaying to a different destination
@@ -150,7 +148,7 @@ impl ReplayClient {
 
 impl Default for ReplayClient {
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("Failed to create default ReplayClient")
     }
 }
 
@@ -189,19 +187,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_replay_client_creation() {
-        let client = ReplayClient::new();
+        let client = ReplayClient::new().unwrap();
         assert!(client.base_url_override.is_none());
     }
 
     #[tokio::test]
     async fn test_replay_with_timeout() {
-        let client = ReplayClient::with_timeout(60);
+        let client = ReplayClient::with_timeout(60).unwrap();
         assert!(client.base_url_override.is_none());
     }
 
     #[tokio::test]
     async fn test_base_url_override() {
-        let client = ReplayClient::new().with_base_url("http://override.example.com".to_string());
+        let client = ReplayClient::new().unwrap().with_base_url("http://override.example.com".to_string());
         assert_eq!(
             client.base_url_override,
             Some("http://override.example.com".to_string())
@@ -210,7 +208,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_url_no_override() {
-        let client = ReplayClient::new();
+        let client = ReplayClient::new().unwrap();
         let url = client
             .resolve_url("http://example.com/path?query=1")
             .unwrap();
@@ -219,7 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_url_with_override() {
-        let client = ReplayClient::new().with_base_url("http://override.com".to_string());
+        let client = ReplayClient::new().unwrap().with_base_url("http://override.com".to_string());
         let url = client
             .resolve_url("http://original.com/path?query=1")
             .unwrap();
@@ -232,7 +230,7 @@ mod tests {
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let client = ReplayClient::new();
+        let client = ReplayClient::new().unwrap();
 
         let request = HttpRequest {
             method: "GET".to_string(),

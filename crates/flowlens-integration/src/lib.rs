@@ -641,8 +641,8 @@ fn test_rewrite_rule_application() {
     assert_eq!(result.applied_rules.len(), 1);
     assert_eq!(result.applied_rules[0], "url-modify");
 }
-#[test]
-fn test_engine_pause_release_flow() {
+#[tokio::test]
+async fn test_engine_pause_release_flow() {
     use flowlens_core::intercept::{InterceptEngine, InterceptState, PausePoint};
     let engine = InterceptEngine::new();
     let sid = flowlens_core::models::SessionId(1);
@@ -667,8 +667,8 @@ fn test_engine_pause_release_flow() {
         flowlens_core::intercept::InterceptError::NotPaused(_)
     ));
 }
-#[test]
-fn test_diff_roundtrip() {
+#[tokio::test]
+async fn test_diff_roundtrip() {
     use flowlens_replay::diff::diff_sessions;
     let bus_a = Arc::new(flowlens_core::event_bus::BroadcastEventBus::new(1024));
     let bus_b = Arc::new(flowlens_core::event_bus::BroadcastEventBus::new(1024));
@@ -738,8 +738,8 @@ fn test_diff_roundtrip() {
     let result = diff_sessions(&events_a, &events_b, 1, 2);
     assert_eq!(result.total_diffs, 2);
 }
-#[test]
-fn test_replay_roundtrip() {
+#[tokio::test]
+async fn test_replay_roundtrip() {
     let bus_a = Arc::new(flowlens_core::event_bus::BroadcastEventBus::new(1024));
     let bus_b = Arc::new(flowlens_core::event_bus::BroadcastEventBus::new(1024));
     let mut eng_a = flowlens_capture::Engine::auto();
@@ -767,8 +767,8 @@ fn test_tls_mitm_decrypt_roundtrip() {
     #[allow(unconditional_panic)]
     panic!("TLS MITM decrypt test requires Npcap + admin - see documentation");
 }
-#[test]
-fn test_mock_capture_store_export_har_roundtrip() {
+#[tokio::test]
+async fn test_mock_capture_store_export_har_roundtrip() {
     let bus = Arc::new(flowlens_core::event_bus::BroadcastEventBus::new(1024));
     let mut eng = flowlens_capture::Engine::auto();
     assert!(eng.start().is_ok());

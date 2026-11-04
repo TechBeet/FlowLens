@@ -152,16 +152,16 @@ pub fn uninstall_ca_from_store(pem: &str) -> Result<(), TlsError> {
             while !context.is_null() {
                 let cert_encoding = (*context).pbCertEncoded;
                 let cert_len = (*context).cbCertEncoded;
-                if cert_len == der_bytes.len() as u32 {
-                    if der_bytes.as_slice()
+                if cert_len == der_bytes.len() as u32
+                    && der_bytes
+                        .as_slice()
                         .iter()
                         .zip(std::slice::from_raw_parts(cert_encoding, cert_len as usize).iter())
                         .all(|(a, b)| a == b)
-                    {
-                        CertDeleteCertificateFromStore(context);
-                        close_cert_store(store_handle);
-                        return Ok(());
-                    }
+                {
+                    CertDeleteCertificateFromStore(context);
+                    close_cert_store(store_handle);
+                    return Ok(());
                 }
                 let next = CertFindCertificateInStore(
                     store_handle,
