@@ -159,12 +159,8 @@ fn main() -> anyhow::Result<()> {
 
                     // Launch the appropriate frontend based on --gui flag
                     if gui {
-                        tracing::warn!(
-                            "--gui is deprecated; the egui frontend was removed. \
-                             Launching the TUI instead."
-                        );
-                        let tui = flowlens_ui::TuiFrontend::new();
-                        tui.run(bus.clone() as Arc<dyn flowlens_core::event_bus::EventBus>)?;
+                        let gui = flowlens_gui::GuiFrontend::new();
+                        gui.run(bus.clone() as Arc<dyn flowlens_core::event_bus::EventBus>)?;
                     } else {
                         let tui = flowlens_ui::TuiFrontend::new();
                         tui.run(bus.clone() as Arc<dyn flowlens_core::event_bus::EventBus>)?;
@@ -394,13 +390,11 @@ fn main() -> anyhow::Result<()> {
                         session_id,
                         base_url
                     );
-                    println!("Replay for session {} requested", session_id);
-                    // TODO: integrate storage load + ReplayClient once storage API is available
+                    anyhow::bail!("Replay not yet wired to storage in this CLI path (session {})", session_id);
                 }
                 flowlens_cli::Commands::Diff { id_a, id_b } => {
                     tracing::info!("Diffing sessions {} and {}", id_a, id_b);
-                    println!("Diff between session {} and {}", id_a, id_b);
-                    // TODO: integrate storage load + diff_sessions once storage API is available
+                    anyhow::bail!("Diff not yet wired to storage in this CLI path ({} vs {})", id_a, id_b);
                 }
             }
 
