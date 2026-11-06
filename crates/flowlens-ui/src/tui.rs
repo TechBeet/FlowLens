@@ -90,7 +90,10 @@ impl UiFrontend for TuiFrontend {
                             }
                         }
                     }
-                    Err(_) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+            continue;
+        }
+        Err(_) => break,
                 }
             }
         });
