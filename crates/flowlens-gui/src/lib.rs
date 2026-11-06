@@ -7,21 +7,21 @@ use std::sync::Arc;
 use flowlens_core::event_bus::EventBus;
 
 mod styles;
+mod statistics;
 mod widgets;
 mod theme_manager;
 mod app;
 #[allow(dead_code)]
 mod event_adapter;
-#[allow(dead_code)]
+mod capture;
 mod mock;
-#[allow(dead_code)]
 mod view_controls;
-#[allow(dead_code)]
 mod view_events;
-#[allow(dead_code)]
 mod view_filter;
-#[allow(dead_code)]
 mod view_session;
+mod view_stats;
+mod view_menu;
+mod view_status;
 
 pub use app::GuiApp;
 
@@ -57,8 +57,8 @@ impl flowlens_ui::UiFrontend for GuiFrontend {
         let native_options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_title("FlowLens")
-                .with_inner_size([1000.0, 700.0])
-                .with_min_inner_size([800.0, 500.0])
+                .with_inner_size([1400.0, 900.0])
+                .with_min_inner_size([1200.0, 700.0])
                 .with_resizable(true),
             ..Default::default()
         };
@@ -79,3 +79,4 @@ impl flowlens_ui::UiFrontend for GuiFrontend {
         Ok(())
     }
 }
+
