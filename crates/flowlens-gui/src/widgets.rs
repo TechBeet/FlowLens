@@ -1,4 +1,4 @@
-﻿//! Custom styled widgets with rounded corners, shadows, and hover effects
+//! Custom styled widgets with rounded corners, shadows, and hover effects
 
 use egui::{Ui, Color32, vec2, Stroke, FontId};
 use crate::styles::{ColorPalette, ThemeMode};
