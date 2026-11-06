@@ -160,6 +160,23 @@ impl InterceptEngine {
         let guard = self.pause_points.lock().await;
         guard.get(&session_id).and_then(|pp| pp.response.clone())
     }
+
+    /// Auto-release a paused session after the given timeout (ms).
+    /// Returns immediately with success; the release is performed as a tokio task.
+    pub async fn auto_release_paused(&self, session_id: SessionId, timeout_ms: u64) -> Result<(), InterceptError> {
+        let pause_points = self.pause_points.clone();
+        let sid = session_id;
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_millis(timeout_ms),
+                async {
+                    let mut guard = pause_points.lock().await;
+                    guard.remove(&sid);
+                }
+            ).await;
+        });
+        Ok(())
+    }
 }
 
 #[allow(dead_code)]
