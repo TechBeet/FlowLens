@@ -20,3 +20,5 @@ flowlens-replay = { path = "../../crates/flowlens-replay" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"] }
 chrono = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+qrcode = { version = "0.14", features = ["image"] }
+image = "0.25"
