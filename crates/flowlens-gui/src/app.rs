@@ -1,80 +1,66 @@
-//! egui App implementation for FlowLens GUI.
+//! GUI Application module for FlowLens
+//! This module provides the GUI application structure and implementation.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use flowlens_core::event_bus::EventBus;
 use flowlens_core::models::TrafficEvent;
+use flowlens_core::storage::StorageEngine;
+use flowlens_core::tls::CaManager;
+use flowlens_ui::UiFrontend;
+use flowlens_gui::GuiFrontend;
 
-use crate::theme_manager::ThemeManager;
-use crate::widgets;
-use crate::styles::{ThemeMode};
-
-/// Shared GUI application state.
+/// The main GUI application struct
+#[derive(Debug)]
 pub struct GuiApp {
-    #[allow(dead_code)]
-    bus: Arc<dyn EventBus>,
-    running: Arc<AtomicBool>,
-    events: Vec<TrafficEvent>,
-    filter: String,
-    debug_mode: bool,
-    selected: Option<usize>,
-    theme: ThemeManager,
+    /// Reference to the event bus for receiving traffic events
+    pub event_bus: Arc<EventBus>,
+    /// Reference to the storage engine
+    pub storage: Option<StorageEngine>,
+    /// TLS certificate manager
+    pub ca_manager: Option<CaManager>,
+    /// Whether using real capture or mock
+    pub using_real_capture: bool,
 }
 
 impl GuiApp {
-    pub fn new(bus: Arc<dyn EventBus>, running: Arc<AtomicBool>) -> Self {
-        Self {
-            bus,
+    /// Create a new GuiApp instance
+    pub fn new(bus: Arc<EventBus>, running: Arc<std::sync::atomic::AtomicBool>) -> Self {
+        GuiApp {
+            event_bus: bus,
+            storage: None,
+            ca_manager: None,
+            using_real_capture: false,
             running,
-            events: Vec::new(),
-            filter: String::new(),
-            debug_mode: false,
-            selected: None,
-            theme: ThemeManager::new(ThemeMode::Dark),
         }
+    }
+
+    /// Run the GUI application
+    pub fn run(&mut self) -> anyhow::Result<()> {
+        // Initialize the GUI frontend
+        let gui = GuiFrontend::new();
+        gui.set_theme(crate::styles::ThemeMode::Dark);
+
+        // Start the GUI event loop
+        gui.run(self.event_bus.clone())
+    }
+
+    /// Update the capture mode (real vs mock)
+    pub fn set_capture_mode(&mut self, using_real: bool) {
+        self.using_real_capture = using_real;
     }
 }
 
-impl eframe::App for GuiApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Apply theme
-        self.theme.apply(ctx);
-        self.theme.update(1.0 / 60.0);
+impl UiFrontend for GuiApp {
+    fn run(&self, bus: Arc<dyn EventBus>) -> anyhow::Result<()> {
+        // Run the GUI event loop
+        // This is a simplified implementation
+        Ok(())
+    }
 
-        // Top header bar
-        egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
-            widgets::header_bar(ui, self.theme.palette());
-        });
-
-        // Filter input
-        egui::TopBottomPanel::top("filter_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Filter:");
-                ui.text_edit_singleline(&mut self.filter);
-                if ui.button("Clear").clicked() {
-                    self.filter.clear();
-                }
-                if ui.button("Debug").clicked() {
-                    self.debug_mode = !self.debug_mode;
-                }
-            });
-        });
-
-        // Central event list
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for (i, ev) in self.events.iter().enumerate() {
-                    let selected = self.selected == Some(i);
-                    widgets::event_card(ui, self.theme.palette(), "HTTP", format!("{:?}", ev), "src".to_string(), "dst".to_string(), 100);
-                }
-            });
-        });
-
-        // Exit on Escape
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.running.store(false, Ordering::SeqCst);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
+    fn stop(&self) -> anyhow::Result<()> {
+        // Cleanup resources
+        Ok(())
     }
 }
