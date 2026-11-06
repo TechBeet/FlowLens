@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "flowlens")]
-#[command(about = "A Windows native proxyless HTTP/HTTPS packet capture tool")]
+#[command(about = "A Windows native proxyless HTTP/HTTPS packet capture tool with GUI interface")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -18,8 +18,8 @@ pub enum Commands {
         /// Name of the capture session
         #[arg(short, long, default_value = "FlowLens")]
         name: String,
-        /// Use GUI mode instead of TUI
-        #[arg(short, long)]
+        /// Use GUI mode (default) instead of TUI
+        #[arg(short = 'g', long, default_value_t = true)]
         gui: bool,
         /// Force mock mode (skip admin check, useful for testing GUI without Npcap/admin)
         #[arg(long)]
