@@ -38,7 +38,7 @@
         selectedDevice = devs[0];
       }
     } catch (e) {
-      addLog(`加载设备列表失败：${e}`);
+      addLog(`加载设备列表失败�?{e}`);
     }
   }
 
@@ -87,13 +87,13 @@
   // Export HAR
   async function exportHAR() {
     try {
-      const path = window.prompt("请输入导出路径 (例如: C:\\\\output.har):");
+      const path = window.prompt("请输入导出路�?(例如: C:\\\\output.har):");
       if (path) {
         await api.exportHAR(path);
-        addLog(`已导出 HAR: ${path}`);
+        addLog(`已导�?HAR: ${path}`);
       }
     } catch (e) {
-      addLog(`导出 HAR 失败：${e}`);
+      addLog(`导出 HAR 失败�?{e}`);
     }
   }
 
@@ -130,7 +130,7 @@
         statsInterval = undefined;
       }
     } catch (e) {
-      error = `停止失败：${e}`;
+      error = `停止失败�?{e}`;
       addLog(error);
     } finally {
       isLoading = false;
@@ -166,7 +166,7 @@
     unlisten = await listen<TrafficEvent>("traffic-event", (ev) => {
       const p = ev.payload;
       events = [...events.slice(-500), p];
-      addLog(`${p.kind}：${p.info}`);
+      addLog(`${p.kind} - ${p.info}`);
     });
   });
 
@@ -174,11 +174,11 @@
   onMount(async () => {
     const u1 = await listen("capture-started", () => {
       running = true;
-      addLog("后端已开始捕获");
+      addLog("后端已开始捕获网络");
     });
     const u2 = await listen("capture-stopped", () => {
       running = false;
-      addLog("后端已停止捕获");
+      addLog("后端已停止捕获网络");
       if (statsInterval) {
         clearInterval(statsInterval);
         statsInterval = undefined;
@@ -216,7 +216,7 @@
 
   <div class="toolbar">
     <label class="toolbar-label">
-      设备：
+      设备�?
       <select bind:value={selectedDevice} class="device-select">
         {#each devices as dev}
           <option value={dev}>{dev}</option>
@@ -227,6 +227,7 @@
     <button class="btn" onclick={installCA}>安装 CA</button>
     <button class="btn" onclick={uninstallCA}>卸载 CA</button>
     <button class="btn" onclick={checkCA}>CA 状态</button>
+    <button class="btn" onclick={() => (showSettings = true)}>⚙ 设置</button>
     <span class="ca-status">
       CA: {caStatus.installed ? "已安装" : "未安装"}
     </span>
@@ -244,15 +245,22 @@
     <RightPanel event={selectedEvent} />
   </div>
 
+  <SettingsView
+    open={showSettings}
+    theme={currentTheme}
+    onclose={() => (showSettings = false)}
+    ontoggletheme={toggleThemeBtn}
+  />
+
   <footer class="status-bar">
     <span class="status-item">
-      事件：<strong>{events.length}</strong> 条
+      事件 <strong>{events.length}</strong> ?
     </span>
-    <span class="status-sep">│</span>
+    <span class="status-sep">�?/span>
     <span class="status-item status-{running ? "running" : "stopped"}">
-      捕获：<strong>{running ? "进行中" : "已停止"}</strong>
+      捕获�?strong>{running ? "进行�? : "已停�?}</strong>
     </span>
-    <span class="status-sep">│</span>
+    <span class="status-sep">�?/span>
     <span class="status-item status-hint">
       快捷键：F2 切换主题
     </span>
@@ -355,9 +363,217 @@
   .status-stopped { color: var(--fg-dim); }
   .status-hint { opacity: 0.7; }
 
-  .status-error {
-    margin-left: auto;
-    color: var(--err);
-    font-weight: 600;
+  PLACEHOLDER
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(2px);
   }
+
+  .modal-content {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+    color: var(--fg);
+  }
+
+  .close-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--fg-dim);
+    font-size: 18px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+
+  .close-btn:hover {
+    background: var(--hover);
+    color: var(--fg);
+  }
+
+  .modal-tabs {
+    display: flex;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tab-btn {
+    padding: 10px 16px;
+    background: transparent;
+    border: none;
+    color: var(--fg-dim);
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+
+  .tab-btn:hover {
+    color: var(--fg);
+  }
+
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  .modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+  }
+
+  .settings-group {
+    margin-bottom: 24px;
+  }
+
+  .settings-group h3 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: var(--fg);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+  }
+
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    gap: 12px;
+  }
+
+  .setting-row label {
+    color: var(--fg);
+    font-size: 13px;
+  }
+
+  .setting-select,
+  .setting-input {
+    padding: 6px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--fg);
+    font-size: 13px;
+    min-width: 120px;
+  }
+
+  .shortcuts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .shortcut-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .shortcut-key {
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 12px;
+    color: var(--accent);
+    background: var(--bg);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+
+  .shortcut-desc {
+    color: var(--fg-dim);
+    font-size: 13px;
+  }
+
+  .about-section {
+    text-align: center;
+    padding: 20px;
+  }
+
+  .about-section h3 {
+    margin: 0 0 8px 0;
+    font-size: 20px;
+    color: var(--accent);
+  }
+
+  .about-section p {
+    margin: 4px 0;
+    color: var(--fg-dim);
+    font-size: 13px;
+  }
+
+  .license {
+    margin-top: 12px !important;
+    font-size: 11px !important;
+    color: var(--fg-dim) !important;
+  }
+
+  .modal-footer {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  .btn {
+    padding: 6px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--fg);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    background: var(--hover);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-color: var(--accent);
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .status-error {
+  margin-left: auto;
+  color: var(--err);
+  font-weight: 600;
+}
 </style>
