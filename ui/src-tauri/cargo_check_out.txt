@@ -1,0 +1,3 @@
+   Compiling flowlens-tauri v0.1.0 (D:\github\FlowLens\ui\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.22s
+EXIT: 0 
