@@ -254,13 +254,13 @@
 
   <footer class="status-bar">
     <span class="status-item">
-      事件 <strong>{events.length}</strong> ?
+      事件 <strong>{events.length}</strong> 
     </span>
-    <span class="status-sep">�?/span>
+    <span class="status-sep">|</span>
     <span class="status-item status-{running ? "running" : "stopped"}">
-      捕获�?strong>{running ? "进行�? : "已停�?}</strong>
+      捕获 <strong>{running ? "进行中" : "已停止"}</strong>
     </span>
-    <span class="status-sep">�?/span>
+    <span class="status-sep">|</span>
     <span class="status-item status-hint">
       快捷键：F2 切换主题
     </span>
@@ -363,7 +363,7 @@
   .status-stopped { color: var(--fg-dim); }
   .status-hint { opacity: 0.7; }
 
-  PLACEHOLDER
+  .modal-overlay {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
