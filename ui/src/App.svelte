@@ -10,7 +10,10 @@
   import ReplayHistory from "./components/ReplayHistory.svelte";
   import TrafficTable from "./components/TrafficTable.svelte";
   import SniDomainSelector from "./components/SniDomainSelector.svelte";
+  import FilterBar from "./components/FilterBar.svelte";
 import SettingsView from "./components/SettingsView.svelte";
+import { createEventStore } from "./lib/stores/eventStore.svelte";
+import { filterEvents } from "./lib/composables";
 
   export interface ReplayEntry {
     id: number;
@@ -26,10 +29,15 @@ import SettingsView from "./components/SettingsView.svelte";
 
   // State management
   let running = $state(false);
+  // Handle to the FilterBar component, so shortcuts can call its `focus()` API
+  // instead of guessing at DOM selectors.
+  let filterBar = $state<{ focus: () => void } | undefined>(undefined);
   let events = $state<TrafficEvent[]>([]);
   let replayHistory = $state<ReplayEntry[]>([]);
   let selectedEvent = $state<TrafficEvent | null>(null);
   let stats = $state<TrafficStats>({ connections: 0, http: 0, tls: 0, sse: 0, websocket: 0, total: 0 });
+  let sharedStore = createEventStore();
+  let filteredForTable = $derived(filterEvents(events, sharedStore.filterState));
 
   async function handleReplay(sessionId: number, delayMs: number, headers: Record<string, string>) {
     try {
@@ -75,15 +83,6 @@ import SettingsView from "./components/SettingsView.svelte";
 
   // ---- Keyboard shortcuts (resolved via shortcutRegistry) ----
 
-  function focusFilterInput(): void {
-    const input =
-      document.querySelector<HTMLInputElement>('input[placeholder*="搜索事件"]') ??
-      document.querySelector<HTMLInputElement>('input[placeholder*="host"]') ??
-      document.querySelector<HTMLInputElement>(".filter-input") ??
-      document.querySelector<HTMLInputElement>(".search-bar input");
-    input?.focus();
-  }
-
   function handleKeyDown(event: KeyboardEvent): void {
     // Never intercept when the user is typing into an editable input/select.
     const target = event.target as HTMLElement | null;
@@ -99,7 +98,9 @@ import SettingsView from "./components/SettingsView.svelte";
 
     switch (actionId) {
       case "focus_filter":
-        focusFilterInput();
+        // Delegate to the FilterBar component API. Optional chaining keeps the
+        // shortcut a no-op (never a crash) when the bar is not mounted.
+        filterBar?.focus();
         break;
       case "toggle_capture":
         running ? stopCapture() : startCapture();
@@ -125,6 +126,7 @@ import SettingsView from "./components/SettingsView.svelte";
   }
 
   let currentTheme = $state<"dark" | "light">("dark");
+  let showSettings = $state(false);
   let isLoading = $state(false);
   let error = $state<string | null>(null);
   let logEntries = $state<string[]>([]);
@@ -290,30 +292,40 @@ import SettingsView from "./components/SettingsView.svelte";
 
   // Listen for traffic events from the backend
   onMount(async () => {
-    unlisten = await listen<TrafficEvent>("traffic-event", (ev) => {
-      const p = ev.payload;
-      events = [...events.slice(-500), p];
-      addLog(`${p.kind} - ${p.info}`);
-    });
+    try {
+      unlisten = await listen<TrafficEvent>("traffic-event", (ev) => {
+        const p = ev.payload;
+        events = [...events.slice(-500), p];
+        addLog(`${p.kind} - ${p.info}`);
+      });
+    } catch {
+      // Backend unavailable (e.g. browser dev run without Tauri); no events.
+    }
   });
 
   // Sync running state via capture lifecycle events emitted by the backend.
   onMount(async () => {
-    const u1 = await listen("capture-started", () => {
-      running = true;
-      addLog("后端已开始捕获网络");
-    });
-    const u2 = await listen("capture-stopped", () => {
-      running = false;
-      addLog("后端已停止捕获网络");
-      if (statsInterval) {
-        clearInterval(statsInterval);
-        statsInterval = undefined;
-      }
-    });
+    let u1: (() => void) | undefined;
+    let u2: (() => void) | undefined;
+    try {
+      u1 = await listen("capture-started", () => {
+        running = true;
+        addLog("后端已开始捕获网络");
+      });
+      u2 = await listen("capture-stopped", () => {
+        running = false;
+        addLog("后端已停止捕获网络");
+        if (statsInterval) {
+          clearInterval(statsInterval);
+          statsInterval = undefined;
+        }
+      });
+    } catch {
+      // Backend unavailable (e.g. browser dev run without Tauri).
+    }
     return () => {
-      u1();
-      u2();
+      u1?.();
+      u2?.();
     };
   });
 
@@ -363,13 +375,16 @@ import SettingsView from "./components/SettingsView.svelte";
     </span>
   </div>
 
+  <!-- The single FilterBar instance: Ctrl+F targets its exported focus() API. -->
+  <FilterBar store={sharedStore} bind:this={filterBar} />
+
   <div class="main-content">
     <Sidebar
       bind:events
       bind:selectedEvent
     />
     <TrafficTable
-      bind:events
+      events={filteredForTable}
       bind:selectedEvent
       onreplay={(sid) => handleReplay(sid, 0, {})}
       onbatchreplay={handleBatchReplay}
