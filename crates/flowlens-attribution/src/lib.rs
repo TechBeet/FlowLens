@@ -159,6 +159,13 @@ impl WindowsIpHelper {
 }
 
 #[cfg(windows)]
+impl Default for WindowsIpHelper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(windows)]
 impl IpHelperLookup for WindowsIpHelper {
     fn get_tcp_table(&self, _family: AddressFamily) -> Vec<TcpConnection> {
         Vec::new()
