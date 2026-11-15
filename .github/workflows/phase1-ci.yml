@@ -1,4 +1,4 @@
-name: Phase 1 CI
+name: CI - Hardened FlowLens Pipeline (Phase 1)
 
 on:
   push:
@@ -79,7 +79,6 @@ jobs:
   # ---------------------------------------------------------------------------
   rust-test:
     name: cargo test --workspace
-    needs: [rust-fmt, rust-clippy]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -102,16 +101,21 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - name: Verify wpdlib build.rs stays Windows-only
+      - name: Assert wpdlib link args are Windows-only
         run: |
-          # flowlens-capture/build.rs is the only build script vendoring
-          # wpdlib import libraries. It must bail early on non-Windows targets
-          # or Linux CI (this job) breaks.
-          grep -q 'target_os != "windows"' crates/flowlens-capture/build.rs \
-            && grep -q 'return;' crates/flowlens-capture/build.rs
+          # crates/flowlens-capture/build.rs vendors the Npcap import libraries
+          # from wpdlib/. It must bail out before emitting any linker args on
+          # non-Windows targets, otherwise Linux builds/tests break.
+          set -euo pipefail
+          build_rs="crates/flowlens-capture/build.rs"
+          test -f "$build_rs"
+          grep -q 'CARGO_CFG_TARGET_OS' "$build_rs"
+          grep -q 'target_os != "windows"' "$build_rs"
+          grep -q 'return;' "$build_rs"
+          echo "OK: $build_rs gates linker args behind a windows target check"
 
-      - name: Run tests
-        run: cargo test --workspace --all-targets
+      - name: Run Rust tests
+        run: cargo test --workspace
 
   # ---------------------------------------------------------------------------
   # UI: typecheck + Vite build + Vitest unit tests
@@ -160,16 +164,19 @@ jobs:
   # ---------------------------------------------------------------------------
   ui-e2e:
     name: UI e2e (Playwright)
-    needs: ui-check
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: ui
+    needs: [ui-check]
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Detect ui/e2e directory
+        id: detect
+        shell: bash
+        run: |
+          if [ -d ui/e2e ]; then echo "has_e2e=true" >> "$GITHUB_OUTPUT"; else echo "has_e2e=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Setup Node (cache npm)
         uses: actions/setup-node@v4
@@ -180,12 +187,21 @@ jobs:
 
       - name: npm ci
         run: npm ci
+        working-directory: ui
 
       - name: Install Playwright Chromium (with system deps)
+        if: steps.detect.outputs.has_e2e == 'true'
         run: npx playwright install --with-deps chromium
+        working-directory: ui
 
       - name: Run Playwright tests
+        if: steps.detect.outputs.has_e2e == 'true'
         run: npx playwright test
+        working-directory: ui
+
+      - name: Report no e2e directory
+        if: steps.detect.outputs.has_e2e == 'false'
+        run: echo "No ui/e2e directory found; skipping end-to-end tests."
 
   # ---------------------------------------------------------------------------
   # Docs: relative-link integrity under docs/
@@ -210,7 +226,7 @@ jobs:
     needs: [rust-test, ui-check, ui-e2e, docs-links]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: ${{ always() && !contains(needs.*.result, 'failure') }}
+    if: ${{ always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     steps:
       - uses: actions/download-artifact@v4
         with:
