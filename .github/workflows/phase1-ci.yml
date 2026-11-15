@@ -2,80 +2,134 @@ name: Phase 1 CI
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main]
   workflow_dispatch:
+
+# Keep per-job least-privilege: read-only repo access by default; individual
+# jobs that need write (none currently) opt in via their own `permissions`.
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# Cancel in-flight runs for the same branch/PR when a newer run supersedes it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ---------------------------------------------------------------------------
-  # Rust: lint the whole workspace with warnings promoted to errors.
+  # Rust: format check
   # ---------------------------------------------------------------------------
-  rust-lint:
-    name: Rust clippy (-D warnings)
+  rust-fmt:
+    name: rustfmt --check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux deps for Tauri
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
-            libayatana-appindicator3-dev libssl-dev pkg-config
-
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          fetch-depth: 0
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Install Rust stable (rustfmt only)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  # ---------------------------------------------------------------------------
+  # Rust: clippy (workspace, all targets, warnings denied)
+  # ---------------------------------------------------------------------------
+  rust-clippy:
+    name: clippy --workspace --all-targets (-D warnings)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Linux build deps for Tauri + pcap (flowlens-capture)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev libssl-dev pkg-config libpcap-dev
+
+      - name: Install Rust stable (clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
 
-      - name: Clippy (workspace, all targets, -D warnings)
+      - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
   # ---------------------------------------------------------------------------
-  # Rust: unit tests for the workspace.
+  # Rust: tests
   # ---------------------------------------------------------------------------
   rust-test:
-    name: Rust tests
+    name: cargo test --workspace
+    needs: [rust-fmt, rust-clippy]
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install Linux deps for Tauri
+      - name: Install Linux build deps for Tauri + pcap
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
-            libayatana-appindicator3-dev libssl-dev pkg-config
+            libayatana-appindicator3-dev libssl-dev pkg-config libpcap-dev
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
 
-      - name: cargo test
+      - name: Verify wpdlib build.rs stays Windows-only
+        run: |
+          # flowlens-capture/build.rs is the only build script vendoring
+          # wpdlib import libraries. It must bail early on non-Windows targets
+          # or Linux CI (this job) breaks.
+          grep -q 'target_os != "windows"' crates/flowlens-capture/build.rs \
+            && grep -q 'return;' crates/flowlens-capture/build.rs
+
+      - name: Run tests
         run: cargo test --workspace --all-targets
 
   # ---------------------------------------------------------------------------
-  # UI: install, typecheck-free Vite build, and Vitest unit tests.
+  # UI: typecheck + Vite build + Vitest unit tests
   # ---------------------------------------------------------------------------
-  ui:
-    name: UI build & tests
+  ui-check:
+    name: UI check (tsc/build/vitest)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: ui
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node (cache npm)
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
@@ -84,16 +138,88 @@ jobs:
       - name: npm ci
         run: npm ci
 
+      - name: Typecheck (tsc --noEmit)
+        run: npx tsc --noEmit
+
       - name: Build (Vite)
         run: npm run build
 
       - name: Unit tests (Vitest)
-        run: npm test
+        run: npx vitest run
 
       - name: Upload UI dist artifact
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: flowlens-ui-dist
           path: ui/dist
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # UI: Playwright end-to-end tests (only when ui/e2e exists)
+  # Depends on ui-check so the app already typechecks, builds and tests green.
+  # ---------------------------------------------------------------------------
+  ui-e2e:
+    name: UI e2e (Playwright)
+    needs: ui-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node (cache npm)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Install Playwright Chromium (with system deps)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npx playwright test
+
+  # ---------------------------------------------------------------------------
+  # Docs: relative-link integrity under docs/
+  # ---------------------------------------------------------------------------
+  docs-links:
+    name: docs link integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check docs links
+        run: python scripts/check_docs_links.py .
+
+  # ---------------------------------------------------------------------------
+  # Publish: single consolidated UI dist artifact once downstream jobs pass.
+  # ---------------------------------------------------------------------------
+  publish-dist:
+    name: publish UI dist artifact
+    needs: [rust-test, ui-check, ui-e2e, docs-links]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ always() && !contains(needs.*.result, 'failure') }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: flowlens-ui-dist
+          path: dist
+
+      - name: Upload consolidated UI dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowlens-ui-dist-consolidated
+          path: dist
           retention-days: 7
