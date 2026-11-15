@@ -97,6 +97,9 @@ pub enum TlsError {
     NotSupported(String),
     #[error("Certificate pinning detected: {0}")]
     CertificatePinning(String),
+
+    #[error("Mutex lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 impl From<rcgen::Error> for TlsError {
@@ -119,7 +122,15 @@ impl InMemoryTlsEngine {
     }
 
     pub fn setup_ca(&self, cn: &str) -> Result<CaInfo, TlsError> {
-        if let Some(ca) = self.ca.read().unwrap().as_ref() {
+        // A poisoned `ca` lock is recoverable: `Option<CaInfo>` either holds a
+        // fully-built CA or nothing, so a panic in another thread cannot leave
+        // it half-written. Surface a clear error instead of panicking.
+        if let Some(ca) = self
+            .ca
+            .read()
+            .map_err(|poisoned| TlsError::LockPoisoned(format!("ca: {poisoned}")))?
+            .as_ref()
+        {
             return Ok(ca.clone());
         }
         let mut params = CertificateParams::new(vec![])?;
@@ -142,7 +153,10 @@ impl InMemoryTlsEngine {
             fingerprint_sha256: fingerprint,
             installed_at: now,
         };
-        *self.ca.write().unwrap() = Some(ca.clone());
+        *self
+            .ca
+            .write()
+            .map_err(|poisoned| TlsError::LockPoisoned(format!("ca: {poisoned}")))? = Some(ca.clone());
         Ok(ca)
     }
 
@@ -151,7 +165,10 @@ impl InMemoryTlsEngine {
         domain: &str,
         san_names: &[String],
     ) -> Result<(Certificate, PrivateKey), TlsError> {
-        let ca_guard = self.ca.read().unwrap();
+        let ca_guard = self
+            .ca
+            .read()
+            .map_err(|poisoned| TlsError::LockPoisoned(format!("ca: {poisoned}")))?;
         let ca = ca_guard
             .as_ref()
             .ok_or_else(|| TlsError::NotSupported("No CA generated yet".to_string()))?;
@@ -179,9 +196,11 @@ impl InMemoryTlsEngine {
     }
 
     pub fn ca_pem(&self) -> Option<String> {
+        // Poison-tolerant: the guarded `Option<CaInfo>` is always in a valid
+        // state even after a panic, so recover the inner value instead of panicking.
         self.ca
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .as_ref()
             .map(|ca| ca.certificate_pem.clone())
     }
@@ -227,10 +246,12 @@ impl InMemoryTlsEngine {
 
     /// Hostnames for which a leaf certificate has already been issued (sorted).
     pub fn issued_snis(&self) -> Vec<String> {
+        // Poison-tolerant: the cert cache is a plain map; its contents remain
+        // valid after a panic, so recover via `into_inner()`.
         let mut names: Vec<String> = self
             .cert_cache
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .keys()
             .cloned()
             .collect();
@@ -242,7 +263,10 @@ impl InMemoryTlsEngine {
     pub fn issue_for_sni(&self, sni: &str) -> Result<(String, String), TlsError> {
         // Check PEM cache first for deterministic round-trip.
         {
-            let guard = self.cert_cache.read().unwrap();
+            let guard = self
+                .cert_cache
+                .read()
+                .map_err(|poisoned| TlsError::LockPoisoned(format!("cert_cache: {poisoned}")))?;
             if let Some((cp, kp)) = guard.get(sni) {
                 return Ok((cp.clone(), kp.clone()));
             }
@@ -305,7 +329,15 @@ impl CaManager for InMemoryTlsEngine {
         uninstall_ca_windows(&ca.certificate_pem)
     }
     fn check_installed(&self, cn: &str) -> bool {
-        if self.ca.read().unwrap().as_ref().map(|ca| ca.cn == cn).unwrap_or(false) {
+        // Poison-tolerant: `ca` holds `Option<CaInfo>` which is always valid.
+        if self
+            .ca
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .map(|ca| ca.cn == cn)
+            .unwrap_or(false)
+        {
             return true;
         }
         check_installed_windows(cn)
@@ -324,13 +356,18 @@ impl CertIssuer for InMemoryTlsEngine {
         self.sign_leaf(domain, san_names)
     }
     fn cache_cert(&self, domain: &str, cert: (Certificate, PrivateKey)) {
+        // Poison-tolerant: the cache map itself remains valid after a panic;
+        // the missed insert is acceptable for a best-effort cache.
         self.cert_cache
             .write()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .insert(domain.to_string(), (cert.0.pem(), cert.1.pem));
     }
     fn get_cached_cert(&self, domain: &str) -> Option<(Certificate, PrivateKey)> {
-        let guard = self.cert_cache.read().unwrap();
+        let guard = self
+            .cert_cache
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let (_cert_pem, key_pem) = guard.get(domain)?.clone();
         drop(guard);
         let key = KeyPair::from_pem(&key_pem).ok()?;
@@ -373,7 +410,10 @@ impl MitmProxy for InMemoryTlsEngine {
     fn issue_for_sni(&self, sni: &str) -> Result<(String, String), TlsError> {
         // Check PEM cache first for deterministic round-trip.
         {
-            let guard = self.cert_cache.read().unwrap();
+            let guard = self
+                .cert_cache
+                .read()
+                .map_err(|poisoned| TlsError::LockPoisoned(format!("cert_cache: {poisoned}")))?;
             if let Some((cp, kp)) = guard.get(sni) {
                 return Ok((cp.clone(), kp.clone()));
             }
