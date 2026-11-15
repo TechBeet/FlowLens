@@ -1,0 +1,24 @@
+    Updating crates.io index
+     Locking 3 packages to highest compatible versions
+      Adding termcolor v1.4.1
+      Adding ts-rs v10.1.0 (available: v12.0.1)
+      Adding ts-rs-macros v10.1.0
+   Compiling termcolor v1.4.1
+   Compiling flowlens-tauri v0.1.0 (D:\github\FlowLens\ui\src-tauri)
+   Compiling ts-rs-macros v10.1.0
+   Compiling ts-rs v10.1.0
+   Compiling flowlens-core v0.1.0 (D:\github\FlowLens\crates\flowlens-core)
+error: couldn't read `D:\github\FlowLens\crates\flowlens-core\src\models.rs`: stream did not contain valid UTF-8
+   --> D:\github\FlowLens\crates\flowlens-core\src\lib.rs:9:1
+    |
+  9 | pub mod models;
+    | ^^^^^^^^^^^^^^^
+    |
+note: bytes `[226, 128]` are not valid utf-8
+   --> D:\github\FlowLens\crates\flowlens-core\src\models.rs:426:31
+    |
+426 |         // Non-IPv4 Ethertype �?skip Ethernet header check; still try direct offset
+    |                               ^
+
+error: could not compile `flowlens-core` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
