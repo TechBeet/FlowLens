@@ -19,6 +19,9 @@ pub enum CoreError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Mutex lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 #[derive(Debug, Error)]
