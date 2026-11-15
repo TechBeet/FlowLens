@@ -1,0 +1,62 @@
+﻿cargo.exe : warning: associated function `rule_matches` is never used
+所在位置 行:1 字符: 72
++ ... 'Continue'; & "$env:USERPROFILE\.cargo\bin\cargo.exe" build --message ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (warning: associ...` is never used:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   --> D:\github\FlowLens\crates\flowlens-core\src\intercept.rs:140:8
+    |
+ 87 | impl InterceptEngine {
+    | -------------------- associated function in this implementation
+...
+140 |     fn rule_matches(rule: &BreakpointRule, request: Option<&HttpRequest>, response: Option<&HttpResponse>) -> boo
+l {
+    |        ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `contains_slice` is never used
+   --> D:\github\FlowLens\crates\flowlens-core\src\intercept.rs:197:4
+    |
+197 | fn contains_slice(haystack: &[u8], needle: &[u8]) -> bool {
+    |    ^^^^^^^^^^^^^^
+
+warning: `flowlens-core` (lib) generated 2 warnings
+   Compiling flowlens-tauri v0.1.0 (D:\github\FlowLens\ui\src-tauri)
+warning: unused variable: `val_b`
+   --> D:\github\FlowLens\crates\flowlens-replay\src\diff.rs:113:15
+    |
+113 |     for (key, val_b) in &b_headers {
+    |               ^^^^^ help: if this is intentional, prefix it with an underscore: `_val_b`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `flowlens-replay` (lib) generated 1 warning (run `cargo fix --lib -p flowlens-replay` to apply 1 suggestion)
+src\lib.rs:13:25: error[E0433]: cannot find `__tauri_command_name_list_decrypt_domains` in `commands`: could not find `
+__tauri_command_name_list_decrypt_domains` in `commands`
+src\lib.rs:51:23: error[E0433]: cannot find `__cmd__list_decrypt_domains` in `commands`: could not find `__cmd__list_de
+crypt_domains` in `commands`
+src\lib.rs:13:25: error[E0433]: cannot find `__tauri_command_name_add_decrypt_domain` in `commands`: could not find `__
+tauri_command_name_add_decrypt_domain` in `commands`
+src\lib.rs:52:23: error[E0433]: cannot find `__cmd__add_decrypt_domain` in `commands`: could not find `__cmd__add_decry
+pt_domain` in `commands`
+src\lib.rs:13:25: error[E0433]: cannot find `__tauri_command_name_remove_decrypt_domain` in `commands`: could not find 
+`__tauri_command_name_remove_decrypt_domain` in `commands`
+src\lib.rs:53:23: error[E0433]: cannot find `__cmd__remove_decrypt_domain` in `commands`: could not find `__cmd__remove
+_decrypt_domain` in `commands`
+src\lib.rs:13:25: error[E0433]: cannot find `__tauri_command_name_toggle_decrypt_domain` in `commands`: could not find 
+`__tauri_command_name_toggle_decrypt_domain` in `commands`
+src\lib.rs:54:23: error[E0433]: cannot find `__cmd__toggle_decrypt_domain` in `commands`: could not find `__cmd__toggle
+_decrypt_domain` in `commands`
+src\lib.rs:13:25: error[E0433]: cannot find `__tauri_command_name_issue_for_sni` in `commands`: could not find `__tauri
+_command_name_issue_for_sni` in `commands`
+src\lib.rs:55:23: error[E0433]: cannot find `__cmd__issue_for_sni` in `commands`: could not find `__cmd__issue_for_sni`
+ in `commands`
+src\commands.rs:1168:90: error[E0425]: cannot find type `boolean` in this scope: not found in this scope
+src\commands.rs:1099:9: error[E0308]: mismatched types: expected `()`, found `Result<u64, _>`
+src\commands.rs:1101:9: error[E0308]: mismatched types: expected `()`, found `Result<{integer}, _>`
+src\commands.rs:1089:67: error[E0308]: mismatched types: expected `Result<u64, String>`, found `()`
+src\state.rs:27:28: error[E0599]: no method named `generate_ca` found for struct `InMemoryTlsEngine` in the current sco
+pe: method not found in `InMemoryTlsEngine`
+error: could not compile `flowlens-tauri` (lib) due to 16 previous errors
