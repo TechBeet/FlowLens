@@ -6,10 +6,10 @@ pub mod mitm;
 pub mod policy;
 pub use concurrent::ConcurrentDecryptor;
 pub use mitm::{
-    build_client_config, build_server_config, extract_sni, MitmStream, MitmTlsAcceptor,
-    MitmTlsConnector,
+    build_client_config, build_server_config, extract_sni, handle_mitm_connection, MitmSession,
+    MitmStream, MitmTlsAcceptor, MitmTlsConnector, SniDecision,
 };
-pub use policy::{matches_domain, normalize_domain, DomainPolicy, DomainRule};
+pub use policy::{matches_domain, normalize_domain, DomainPolicy, DomainPolicyAccess, DomainRule};
 
 use std::sync::RwLock;
 use std::collections::HashMap;
@@ -354,6 +354,9 @@ pub trait MitmProxy: CertIssuer {
     fn build_client_config(&self) -> Result<rustls::ClientConfig, TlsError>;
     fn extract_sni_from_client_hello(&self, data: &[u8]) -> Option<String>;
     fn issue_for_sni(&self, sni: &str) -> Result<(String, String), TlsError>;
+
+    /// Build a per-host `ServerConfig` for `sni`, issuing a leaf cert on first use.
+    fn server_config_for_sni(&self, sni: &str) -> Result<rustls::ServerConfig, TlsError>;
 }
 
 impl MitmProxy for InMemoryTlsEngine {
@@ -379,6 +382,9 @@ impl MitmProxy for InMemoryTlsEngine {
         let res = (cert.pem(), key.pem.clone());
         self.cache_cert(sni, (cert, key));
         Ok(res)
+    }
+    fn server_config_for_sni(&self, sni: &str) -> Result<rustls::ServerConfig, TlsError> {
+        InMemoryTlsEngine::server_config_for_sni(self, sni)
     }
 }
 /// SHA-256 fingerprint (lowercase hex) of the first certificate in a PEM bundle.
