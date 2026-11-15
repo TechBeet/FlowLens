@@ -23,31 +23,19 @@
   let harExportError = $state<string | null>(null);
   let harExportSuccess = $state<string | null>(null);
 
-  /// Open the native "Save File" dialog when available (Tauri plugin-dialog /
-  /// window.showSaveFilePicker), otherwise fall back to window.prompt.
+  /// Open the native Tauri "Save File" dialog (tauri-plugin-dialog).
+  ///
+  /// Returns the absolute path the user picked, or `null` when they cancel.
+  /// The modal keeps a manual path input as a fallback for web/dev runs.
   async function pickHarPath(): Promise<string | null> {
     const suggested = harDefaultFilename.trim() || "trace.har";
 
-    // Modern browsers / WebView2 WebDriver: native save picker.
-    if (typeof window.showSaveFilePicker === "function") {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: suggested,
-          types: [
-            {
-              description: "HAR 1.2 file",
-              accept: { "application/json": [".har", ".json"] },
-            },
-          ],
-        });
-        return handle?.name ?? String(handle);
-      } catch {
-        // User cancelled or picker unsupported; fall through to prompt.
-      }
+    try {
+      return await api.pickSavePath(suggested);
+    } catch (e) {
+      console.warn("native save dialog unavailable, falling back to prompt", e);
+      return window.prompt("请输入导出文件路径 (例如: trace.har):", suggested) ?? null;
     }
-
-    // Fallback for environments without a file picker.
-    return window.prompt("请输入导出文件路径 (例如: trace.har):", suggested) ?? null;
   }
 
   async function exportHar() {
