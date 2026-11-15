@@ -10,6 +10,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::new(event_bus))
         .invoke_handler(tauri::generate_handler![
             commands::start_capture,
@@ -56,6 +57,7 @@ pub fn run() {
             commands::issue_for_sni,
             commands::start_proxy,
             commands::stop_proxy,
+            commands::pick_save_path,
         ])
         .setup(|_app| {
             Ok(())
