@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TrafficStats } from "../lib/types";
-  import type { EventStore } from "../lib/stores/eventStore";
-  import { createEventStore } from "../lib/stores/eventStore";
+  import type { EventStore } from "../lib/stores/eventStore.svelte";
+  import { createEventStore } from "../lib/stores/eventStore.svelte";
 
   interface Props {
     store?: EventStore;
