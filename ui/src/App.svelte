@@ -3,12 +3,14 @@
   import { listen } from "@tauri-apps/api/event";
   import * as api from "./lib/api";
   import type { TrafficEvent, TrafficStats } from "./lib/types";
+  import { shortcutRegistry } from "./lib/shortcuts";
   import Header from "./components/Header.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import DetailPanel from "./components/DetailPanel.svelte";
   import ReplayHistory from "./components/ReplayHistory.svelte";
   import TrafficTable from "./components/TrafficTable.svelte";
   import SniDomainSelector from "./components/SniDomainSelector.svelte";
+import SettingsView from "./components/SettingsView.svelte";
 
   export interface ReplayEntry {
     id: number;
@@ -71,6 +73,52 @@
     }
   }
 
+  // ---- Keyboard shortcuts (resolved via shortcutRegistry) ----
+
+  function focusFilterInput(): void {
+    const input =
+      document.querySelector<HTMLInputElement>('input[placeholder*="搜索事件"]') ??
+      document.querySelector<HTMLInputElement>('input[placeholder*="host"]') ??
+      document.querySelector<HTMLInputElement>(".filter-input") ??
+      document.querySelector<HTMLInputElement>(".search-bar input");
+    input?.focus();
+  }
+
+  function handleKeyDown(event: KeyboardEvent): void {
+    // Never intercept when the user is typing into an editable input/select.
+    const target = event.target as HTMLElement | null;
+    const editable =
+      target?.matches("input, textarea, select") ||
+      target?.isContentEditable;
+    if (editable) return;
+
+    const actionId = shortcutRegistry.match(event);
+    if (!actionId) return;
+
+    event.preventDefault();
+
+    switch (actionId) {
+      case "focus_filter":
+        focusFilterInput();
+        break;
+      case "toggle_capture":
+        running ? stopCapture() : startCapture();
+        break;
+      case "export_har":
+        exportHAR();
+        break;
+      case "clear_selection":
+        selectedEvent = null;
+        addLog("快捷键：已清除选择");
+        break;
+      case "toggle_theme":
+        toggleThemeBtn();
+        break;
+      // Unknown action ids are intentionally ignored; a shortcut always maps
+      // to a registered action.
+    }
+  }
+
   function clearReplayHistory() {
     replayHistory = [];
     addLog("已清空重放历史");
@@ -92,6 +140,17 @@
       currentTheme = t;
       api.applyTheme(t);
     });
+  });
+
+  // Load persisted shortcut overrides and attach the global key handler.
+  // The handler resolves combos through `shortcutRegistry`, so overrides take
+  // effect as soon as they are merged (no re-binding needed).
+  onMount(() => {
+    api.loadShortcuts().then((saved) => {
+      shortcutRegistry.merge(saved);
+    });
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   });
 
   // Load devices
@@ -338,7 +397,7 @@
     </span>
     <span class="status-sep">|</span>
     <span class="status-item status-hint">
-      快捷键：F2 切换主题
+      快捷键：可在「设置 → 快捷键」中自定义
     </span>
     {#if error}
       <span class="status-error">{error}</span>
