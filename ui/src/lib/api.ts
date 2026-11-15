@@ -39,6 +39,12 @@ export async function exportHAR(
   await invoke("export_har", { path, options });
 }
 
+/// Open the native "Save File" dialog and return the chosen absolute path,
+/// or `null` when the user cancels.
+export async function pickSavePath(defaultName = "trace.har"): Promise<string | null> {
+  return await invoke<string | null>("pick_save_path", { defaultName });
+}
+
 // ---------- Session interception ----------
 
 export async function pauseSession(sessionId: number): Promise<void> {
