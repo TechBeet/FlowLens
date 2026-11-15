@@ -44,7 +44,10 @@ impl Default for InMemorySessionManager {
 
 impl SessionManager for InMemorySessionManager {
     fn create_session(&self, conn: ConnectionKey) -> SessionId {
-        let mut id = self.next_id.lock().unwrap();
+        let mut id = self
+            .next_id
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *id += 1;
         let session_id = SessionId(*id);
 
@@ -72,12 +75,18 @@ impl SessionManager for InMemorySessionManager {
             bytes_received: 0,
         };
 
-        self.sessions.lock().unwrap().insert(session_id, session);
+        self.sessions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(session_id, session);
         session_id
     }
 
     fn update_session(&self, id: SessionId, event: TrafficEvent) -> Result<(), CoreError> {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|poisoned| CoreError::LockPoisoned(format!("sessions: {poisoned}")))?;
         if let Some(session) = sessions.get_mut(&id) {
             match &event {
                 TrafficEvent::ConnectionEstablished { conn, process } => {
@@ -123,7 +132,11 @@ impl SessionManager for InMemorySessionManager {
     }
 
     fn get_session(&self, id: SessionId) -> Option<TrafficSession> {
-        self.sessions.lock().unwrap().get(&id).cloned()
+        self.sessions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&id)
+            .cloned()
     }
 
     fn persist(&self, _id: SessionId) -> Result<(), CoreError> {
@@ -132,7 +145,12 @@ impl SessionManager for InMemorySessionManager {
     }
 
     fn list_sessions(&self) -> Vec<TrafficSession> {
-        self.sessions.lock().unwrap().values().cloned().collect()
+        self.sessions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .values()
+            .cloned()
+            .collect()
     }
 }
 
