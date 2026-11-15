@@ -48,6 +48,8 @@ pub fn run() {
             commands::delete_session,
             commands::read_theme,
             commands::write_theme,
+            commands::read_shortcuts,
+            commands::write_shortcuts,
             commands::set_event_max,
             commands::get_event_max,
             commands::list_decrypt_domains,
