@@ -269,4 +269,40 @@ mod tests {
         assert!(policy.set_decrypt("missing.example.com", true).is_none());
         assert!(!policy.decrypt_enabled("a.example.com"));
     }
+
+    #[test]
+    fn wildcard_matches_only_single_label_subdomain() {
+        let mut policy = DomainPolicy::new();
+        policy.add("*.example.com", true).unwrap();
+
+        // Single-label subdomains match.
+        assert!(policy.decrypt_enabled("api.example.com"));
+        assert!(policy.decrypt_enabled("WWW.Example.COM"));
+        // The apex does not match a `*.` rule.
+        assert!(!policy.decrypt_enabled("example.com"));
+        // Nested labels do not match a single-label wildcard.
+        assert!(!policy.decrypt_enabled("a.b.example.com"));
+        // Unrelated host does not match.
+        assert!(!policy.decrypt_enabled("example.com.evil.test"));
+    }
+
+    #[test]
+    fn wildcard_matches_domain_helper_directly() {
+        assert!(matches_domain("*.example.com", "api.example.com"));
+        assert!(matches_domain("*.example.com", "API.EXAMPLE.COM"));
+        assert!(!matches_domain("*.example.com", "example.com"));
+        assert!(!matches_domain("*.example.com", "a.b.example.com"));
+        assert!(matches_domain("api.example.com", "api.example.com"));
+        assert!(!matches_domain("api.example.com", "www.example.com"));
+    }
+
+    #[test]
+    fn decrypt_decision_respects_toggle_state() {
+        // A disabled rule must never intercept, even when the domain matches.
+        let mut policy = DomainPolicy::new();
+        policy.add("api.example.com", true).unwrap();
+        assert!(policy.decrypt_enabled("api.example.com"));
+        policy.set_decrypt("api.example.com", false).unwrap();
+        assert!(!policy.decrypt_enabled("api.example.com"));
+    }
 }
