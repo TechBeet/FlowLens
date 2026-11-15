@@ -619,17 +619,48 @@ pub async fn list_paused_sessions(state: State<'_, AppState>) -> Result<serde_js
     serde_json::to_value(paused).map_err(|e| e.to_string())
 }
 
+/// Coerce the `priority` key of an incoming rewrite-rule payload into a `u8`.
+///
+/// Accepts an absent or `null` value (normalised to
+/// [`flowlens_core::DEFAULT_PRIORITY`]) and any integer in `0..=255`. Anything
+/// else is rejected with an actionable message the UI can surface verbatim,
+/// which is friendlier than the generic serde error we would otherwise get for
+/// a `u8` field.
+///
+/// The normalised value is always written back into the payload so that the
+/// rule stored in the engine — and therefore whatever `list_rewrite_rules`
+/// later reports — carries an explicit `priority`.
+fn normalize_rewrite_priority(rule: &mut serde_json::Value) -> Result<u8, String> {
+    let obj = rule
+        .as_object_mut()
+        .ok_or_else(|| "Invalid rule JSON: expected an object".to_string())?;
+
+    let priority = match obj.get("priority") {
+        None | Some(serde_json::Value::Null) => flowlens_core::DEFAULT_PRIORITY,
+        Some(value) => {
+            let raw = value.as_u64().ok_or_else(|| {
+                format!("priority must be an integer in 0..=255, got {}", value)
+            })?;
+            u8::try_from(raw)
+                .map_err(|_| format!("priority must be in 0..=255, got {}", raw))?
+        }
+    };
+
+    obj.insert("priority".to_string(), serde_json::Value::from(priority));
+    Ok(priority)
+}
+
 #[tauri::command]
 pub async fn add_rewrite_rule(
     state: State<'_, AppState>,
-    rule: serde_json::Value,
+    mut rule: serde_json::Value,
 ) -> Result<(), String> {
+    normalize_rewrite_priority(&mut rule)?;
     let rewrite_rule: flowlens_core::RewriteRule = serde_json::from_value(rule)
         .map_err(|e| format!("Invalid rule JSON: {}", e))?;
-    
+
     let mut engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
     engine.add_rule(rewrite_rule);
-    drop(engine);
     Ok(())
 }
 
@@ -651,11 +682,22 @@ pub async fn toggle_rewrite_rule(
 
 #[tauri::command]
 pub async fn list_rewrite_rules(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
-    let engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
-    let rules = engine.list_rules().to_vec();
-    let mut result = Vec::new();
-    for r in rules {
-        result.push(serde_json::to_value(r).map_err(|e| e.to_string())?);
+    let rules = {
+        let engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
+        engine.list_rules().to_vec()
+    };
+
+    let mut result = Vec::with_capacity(rules.len());
+    for rule in rules {
+        // `priority` is re-asserted rather than trusted: the engine is the
+        // source of truth, and this keeps the field present for payloads built
+        // from older in-memory rules.
+        let priority = rule.priority;
+        let mut value = serde_json::to_value(rule).map_err(|e| e.to_string())?;
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("priority".to_string(), serde_json::Value::from(priority));
+        }
+        result.push(value);
     }
     Ok(result)
 }
@@ -1228,5 +1270,89 @@ pub async fn pick_save_path(
         });
 
     rx.recv().map_err(|e| format!("dialog closed unexpectedly: {e}"))
+}
+
+// ---------- Editable keyboard shortcuts (app_data_dir/shortcuts.json) ----------
+
+/// Absolute path of the persisted shortcut-override file.
+///
+/// Overrides live in the Tauri app data dir so a per-user install keeps its own
+/// bindings; unlike `read_theme`/`write_theme` (temp dir) this needs an
+/// `AppHandle` to resolve the path.
+fn shortcuts_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    let mut dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("failed to resolve app data dir: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create app data dir: {e}"))?;
+    dir.push("shortcuts.json");
+    Ok(dir)
+}
+
+/// Read the persisted shortcut overrides.
+///
+/// Returns a `{ "actionId": { ctrl, alt, shift, key } }` map. An empty object is
+/// returned when the file is missing or unreadable, which tells the frontend to
+/// fall back to the registry defaults.
+#[tauri::command]
+pub async fn read_shortcuts(app: AppHandle) -> Result<serde_json::Value, String> {
+    let path = shortcuts_file_path(&app)?;
+    match std::fs::read_to_string(&path) {
+        Ok(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Ok(serde_json::json!({}));
+            }
+            let value: serde_json::Value =
+                serde_json::from_str(trimmed).map_err(|e| format!("invalid shortcuts.json: {e}"))?;
+            if !value.is_object() {
+                return Err("shortcuts.json must contain a JSON object".to_string());
+            }
+            Ok(value)
+        }
+        Err(_) => Ok(serde_json::json!({})),
+    }
+}
+
+/// Persist shortcut overrides as pretty-printed JSON.
+#[tauri::command]
+pub async fn write_shortcuts(app: AppHandle, shortcuts: serde_json::Value) -> Result<(), String> {
+    if !shortcuts.is_object() {
+        return Err("shortcuts must be a JSON object".to_string());
+    }
+    let path = shortcuts_file_path(&app)?;
+    let serialized =
+        serde_json::to_string_pretty(&shortcuts).map_err(|e| format!("failed to encode shortcuts: {e}"))?;
+    std::fs::write(&path, serialized).map_err(|e| format!("failed to write shortcuts: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_rewrite_priority;
+
+    #[test]
+    fn test_normalize_rewrite_priority_in_range() {
+        let mut value = serde_json::json!({ "id": "a", "priority": 150 });
+        assert_eq!(normalize_rewrite_priority(&mut value).unwrap(), 150);
+    }
+
+    #[test]
+    fn test_normalize_rewrite_priority_default_when_missing() {
+        let mut value = serde_json::json!({ "id": "a" });
+        assert_eq!(normalize_rewrite_priority(&mut value).unwrap(), 100);
+    }
+
+    #[test]
+    fn test_normalize_rewrite_priority_rejects_out_of_range() {
+        let mut value = serde_json::json!({ "id": "a", "priority": 256 });
+        assert!(normalize_rewrite_priority(&mut value).is_err());
+    }
+
+    #[test]
+    fn test_normalize_rewrite_priority_rejects_non_integer() {
+        let mut value = serde_json::json!({ "id": "a", "priority": 1.5 });
+        assert!(normalize_rewrite_priority(&mut value).is_err());
+    }
 }
 
