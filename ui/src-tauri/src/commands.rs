@@ -156,7 +156,11 @@ pub async fn start_capture(
             match rx.recv().await {
                 Ok(event) => {
                     let stats_snapshot = {
-                        let mut s = stats.lock().unwrap();
+                        // Poison-tolerant: `TrafficStats` is a set of counters;
+                        // a panicking task cannot corrupt them, so recover.
+                        let mut s = stats
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
                         tally(&mut s, &event);
                         s.clone()
                     };
@@ -183,7 +187,13 @@ pub async fn start_capture(
             }
         }
     });
-    state.pump_task.lock().unwrap().replace(handle);
+    // Poison-tolerant: the slot holds an `Option<JoinHandle>`; replacing it
+    // after a previous task panicked is safe and keeps capture restartable.
+    state
+        .pump_task
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .replace(handle);
 
     // Start the actual capture engine. Honour an explicitly requested device when
     // provided, otherwise auto-detect.
@@ -1207,45 +1217,141 @@ pub async fn delete_session(
 /// The listener shares the same `ca_manager` and `decrypt_policy` handles as
 /// the UI commands, so per-host rules (including the `toggle_decrypt_domain`
 /// switch) are honoured live on every accepted connection.
+///
+/// Idempotent: starting an already-running proxy is a no-op and returns the
+/// current listening port.
 #[tauri::command]
 pub async fn start_proxy(
     state: State<'_, AppState>,
     port: Option<u16>,
 ) -> Result<u16, String> {
+    let requested_port = port.unwrap_or(crate::proxy::DEFAULT_PORT);
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], requested_port));
+
     {
         let slot = state.proxy_task.lock().map_err(|e| e.to_string())?;
         if slot.is_some() {
-            return Err("proxy already running".into());
+            return Ok(requested_port);
         }
     }
 
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port.unwrap_or(8888)));
     let runtime = std::sync::Arc::new(crate::proxy::ProxyRuntime::new(&state));
+    let listener_runtime = runtime.clone();
     let handle = tokio::spawn(async move {
-        if let Err(e) = runtime.run_listener(addr).await {
-            tracing::error!(error = %e, "MITM proxy listener stopped");
+        if let Err(e) = listener_runtime.run_listener(addr).await {
+            tracing::warn!(error = %e, "MITM proxy listener stopped with error");
         }
     });
-    let bound_port = addr.port();
-    state
+
+    // Store both the runtime handle (for graceful shutdown) and the task handle.
+    *state
+        .proxy_runtime
+        .lock()
+        .map_err(|e| e.to_string())? = Some(runtime.clone());
+    *state
+        .proxy_addr
+        .lock()
+        .map_err(|e| e.to_string())? = Some(addr);
+    *state
         .proxy_task
         .lock()
-        .map_err(|e| e.to_string())?
-        .replace(handle);
+        .map_err(|e| e.to_string())? = Some(handle);
+
+    let bound_port = addr.port();
     Ok(bound_port)
 }
 
 /// Stop the SNI-aware MITM proxy listener, if running.
+///
+/// Idempotent: stopping a stopped proxy is a no-op returning `Ok(false)`.
+/// The accept loop is signalled to stop via the shared `AtomicBool` and the
+/// task is awaited (with a short timeout) so the listener is fully closed.
 #[tauri::command]
 pub async fn stop_proxy(state: State<'_, AppState>) -> Result<bool, String> {
-    let mut slot = state.proxy_task.lock().map_err(|e| e.to_string())?;
-    match slot.take() {
+    // Signal the runtime to stop accepting new connections.
+    if let Some(runtime) = state
+        .proxy_runtime
+        .lock()
+        .map_err(|e| e.to_string())?
+        .take()
+    {
+        runtime.shutdown();
+    }
+
+    // Take the task handle and await it so the listener is released before we
+    // return. A missing handle means we were not running.
+    let handle = state
+        .proxy_task
+        .lock()
+        .map_err(|e| e.to_string())?
+        .take();
+
+    state
+        .proxy_addr
+        .lock()
+        .map_err(|e| e.to_string())?
+        .take();
+
+    match handle {
         Some(handle) => {
-            handle.abort();
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
             Ok(true)
         }
         None => Ok(false),
     }
+}
+
+/// Return the current status of the MITM proxy listener.
+///
+/// `running` reflects whether a task handle is held, `addr` is the configured
+/// listen address (`127.0.0.1:<port>`) or empty when stopped, and
+/// `decrypt_domains` lists the host rules currently enabled for TLS termination.
+#[tauri::command]
+pub async fn get_proxy_status(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let running = {
+        // Prefer the runtime's own flag when present; fall back to the task slot.
+        let runtime_running = state
+            .proxy_runtime
+            .lock()
+            .map_err(|e| e.to_string())?
+            .as_ref()
+            .map(|rt| rt.is_running())
+            .unwrap_or(false);
+        let task_present = state
+            .proxy_task
+            .lock()
+            .map_err(|e| e.to_string())?
+            .is_some();
+        runtime_running && task_present
+    };
+
+    let decrypt_domains: Vec<serde_json::Value> = {
+        let policy = state.decrypt_policy.lock().map_err(|e| e.to_string())?;
+        policy
+            .rules()
+            .iter()
+            .filter(|r| r.decrypt)
+            .map(|r| {
+                serde_json::json!({
+                    "domain": r.domain,
+                    "wildcard": r.wildcard,
+                })
+            })
+            .collect()
+    };
+
+    let addr = {
+        let guard = state.proxy_addr.lock().map_err(|e| e.to_string())?;
+        guard.map(|a| a.to_string()).unwrap_or_default()
+    };
+
+    Ok(serde_json::json!({
+        "running": running,
+        "addr": addr,
+        "decrypt_domains": decrypt_domains,
+    }))
 }
 /// Open the native "Save File" dialog and return the chosen absolute path.
 ///
