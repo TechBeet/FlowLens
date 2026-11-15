@@ -27,10 +27,6 @@
           );
         })
   );
-  
-  export function dispatch(e: CustomEvent) {
-    // Forward custom events if needed
-  }
 </script>
 
 <div class="sidebar">
