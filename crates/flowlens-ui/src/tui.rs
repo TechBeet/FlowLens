@@ -136,7 +136,12 @@ impl UiFrontend for TuiFrontend {
                 frame.render_widget(status_par, chunks[1]);
 
                 // 主内容区域 - 表格
-                let events = app.events.lock().unwrap();
+                // Poison-tolerant: the event list is a plain Vec whose contents
+                // remain valid even if the producer thread panicked mid-push.
+                let events = app
+                    .events
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                 let header_cells = ["时间", "方法", "URL", "状态", "大小"]
                     .iter()
                     .map(|&c| Cell::from(c).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
@@ -205,7 +210,10 @@ impl UiFrontend for TuiFrontend {
                         app.table_state.select(Some(if current == 0 { 0 } else { current - 1 }));
                     }
                     KeyCode::Char('f') | KeyCode::Char('F') => {
-                        app.events.lock().unwrap().clear();
+                        app.events
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .clear();
                         app.status_msg = "已清空".to_string();
                     }
                     KeyCode::Char('d') | KeyCode::Char('D') => {
