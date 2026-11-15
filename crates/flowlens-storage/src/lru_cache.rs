@@ -41,29 +41,53 @@ impl LruSessionCache {
 
     fn insert_with_id(&self, session: &TrafficSession, id: SessionId) -> anyhow::Result<()> {
         let serialized_size = self.estimate_session_size(session);
-        
-        while *self.current_bytes.read().unwrap() + serialized_size > self.capacity_bytes
-            && !self.lru_order.read().unwrap().is_empty()
+
+        while *self
+            .current_bytes
+            .read()
+            .map_err(|poisoned| anyhow::anyhow!("current_bytes lock poisoned: {poisoned}"))?
+            + serialized_size
+            > self.capacity_bytes
+            && !self
+                .lru_order
+                .read()
+                .map_err(|poisoned| anyhow::anyhow!("lru_order lock poisoned: {poisoned}"))?
+                .is_empty()
         {
             self.evict_least_recently_used()?;
         }
-        
+
         {
-            let mut sessions = self.sessions.write().unwrap();
-            let mut lru_order = self.lru_order.write().unwrap();
-            
+            let mut sessions = self
+                .sessions
+                .write()
+                .map_err(|poisoned| anyhow::anyhow!("sessions lock poisoned: {poisoned}"))?;
+            let mut lru_order = self
+                .lru_order
+                .write()
+                .map_err(|poisoned| anyhow::anyhow!("lru_order lock poisoned: {poisoned}"))?;
+
             sessions.insert(id, (session.clone(), SystemTime::now()));
             lru_order.push(id);
-            *self.current_bytes.write().unwrap() += serialized_size;
+            *self
+                .current_bytes
+                .write()
+                .map_err(|poisoned| anyhow::anyhow!("current_bytes lock poisoned: {poisoned}"))? += serialized_size;
         }
-        
+
         Ok(())
     }
 
     /// Get a session from the cache.
     pub fn get(&self, id: SessionId) -> anyhow::Result<Option<TrafficSession>> {
-        let mut sessions = self.sessions.write().unwrap();
-        let mut lru_order = self.lru_order.write().unwrap();
+        let mut sessions = self
+            .sessions
+            .write()
+            .map_err(|poisoned| anyhow::anyhow!("sessions lock poisoned: {poisoned}"))?;
+        let mut lru_order = self
+            .lru_order
+            .write()
+            .map_err(|poisoned| anyhow::anyhow!("lru_order lock poisoned: {poisoned}"))?;
         
         if let Some((session, _)) = sessions.get(&id) {
             let cloned = session.clone();
@@ -80,7 +104,10 @@ impl LruSessionCache {
 
     /// Get the number of sessions in the cache.
     pub fn len(&self) -> usize {
-        self.sessions.read().unwrap().len()
+        self.sessions
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
     }
 
     /// Returns `true` when the cache contains no sessions.
@@ -90,13 +117,26 @@ impl LruSessionCache {
 
     /// Get the total bytes used by the cache.
     pub fn total_bytes(&self) -> usize {
-        *self.current_bytes.read().unwrap()
+        // Poison-tolerant: the guarded `usize` is a plain counter whose value
+        // stays meaningful even if a writer panicked mid-update.
+        *self
+            .current_bytes
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Evict sessions until the cache fits within the memory budget.
     pub fn evict_to_fit(&self) -> anyhow::Result<()> {
-        while *self.current_bytes.read().unwrap() > self.capacity_bytes
-            && !self.lru_order.read().unwrap().is_empty()
+        while *self
+            .current_bytes
+            .read()
+            .map_err(|poisoned| anyhow::anyhow!("current_bytes lock poisoned: {poisoned}"))?
+            > self.capacity_bytes
+            && !self
+                .lru_order
+                .read()
+                .map_err(|poisoned| anyhow::anyhow!("lru_order lock poisoned: {poisoned}"))?
+                .is_empty()
         {
             self.evict_least_recently_used()?;
         }
@@ -104,14 +144,23 @@ impl LruSessionCache {
     }
 
     fn evict_least_recently_used(&self) -> anyhow::Result<()> {
-        let mut sessions = self.sessions.write().unwrap();
-        let mut lru_order = self.lru_order.write().unwrap();
-        
+        let mut sessions = self
+            .sessions
+            .write()
+            .map_err(|poisoned| anyhow::anyhow!("sessions lock poisoned: {poisoned}"))?;
+        let mut lru_order = self
+            .lru_order
+            .write()
+            .map_err(|poisoned| anyhow::anyhow!("lru_order lock poisoned: {poisoned}"))?;
+
         if !lru_order.is_empty() {
             let id = lru_order.remove(0);
             if let Some((session, _)) = sessions.remove(&id) {
                 let serialized_size = self.estimate_session_size(&session);
-                *self.current_bytes.write().unwrap() -= serialized_size;
+                *self
+                    .current_bytes
+                    .write()
+                    .map_err(|poisoned| anyhow::anyhow!("current_bytes lock poisoned: {poisoned}"))? -= serialized_size;
             }
         }
         Ok(())
