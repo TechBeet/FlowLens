@@ -15,13 +15,32 @@ pub enum RewriteAction {
     SetBody(Vec<u8>),
 }
 
+/// Default priority assigned to rules that do not declare one.
+///
+/// 100 sits in the middle of the `u8` range so rules can be raised *or*
+/// lowered relative to the default without renumbering anything.
+pub const DEFAULT_PRIORITY: u8 = 100;
+
+/// Serde default hook for [`RewriteRule::priority`].
+fn default_priority() -> u8 {
+    DEFAULT_PRIORITY
+}
+
 /// Rewrite rule definition
+///
+/// Rules are evaluated by *descending* [`Self::priority`]; ties keep the order
+/// in which they were added to the [`RewriteEngine`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RewriteRule {
     pub id: String,
     pub name: String,
     pub enabled: bool,
-    pub priority: i32,
+    /// Evaluation priority, `0..=255`. Higher runs first.
+    ///
+    /// `#[serde(default)]` keeps rule files written before the field existed
+    /// (Q7) loadable — they deserialize to [`DEFAULT_PRIORITY`].
+    #[serde(default = "default_priority")]
+    pub priority: u8,
     pub method_regex: Option<String>,
     pub url_regex: Option<String>,
     pub status_code: Option<u16>,
@@ -60,6 +79,11 @@ impl RewriteEngine {
         Self { rules: Vec::new() }
     }
 
+    /// Insert a rule, keeping the slice ordered by descending priority.
+    ///
+    /// [`slice::sort_by_key`] is stable, so rules that share a priority keep
+    /// their relative insertion order — that is what makes "ties fall back to
+    /// insertion order" hold. `apply_rules` therefore only needs a linear walk.
     pub fn add_rule(&mut self, rule: RewriteRule) {
         self.rules.push(rule);
         self.rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
@@ -354,5 +378,110 @@ mod tests {
         assert!(!engine.remove_rule("non-existent"));
         assert_eq!(engine.rules.len(), 1);
         assert_eq!(engine.rules[0].id, "keep");
+    }
+
+    /// Build a minimal rule with the given id and priority.
+    fn rule_with_priority(id: &str, priority: u8) -> RewriteRule {
+        RewriteRule {
+            id: id.to_string(),
+            name: id.to_string(),
+            enabled: true,
+            priority,
+            method_regex: None,
+            url_regex: None,
+            status_code: None,
+            header_match: None,
+            body_contains: None,
+            actions: vec![],
+        }
+    }
+
+    #[test]
+    fn test_rules_sorted_by_descending_priority() {
+        let mut engine = RewriteEngine::new();
+        engine.add_rule(rule_with_priority("low", 10));
+        engine.add_rule(rule_with_priority("high", 200));
+        engine.add_rule(rule_with_priority("mid", 100));
+
+        let ids: Vec<&str> = engine.list_rules().iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, vec!["high", "mid", "low"]);
+    }
+
+    #[test]
+    fn test_equal_priority_keeps_insertion_order() {
+        let mut engine = RewriteEngine::new();
+        engine.add_rule(rule_with_priority("first", 50));
+        engine.add_rule(rule_with_priority("second", 50));
+        engine.add_rule(rule_with_priority("third", 50));
+
+        let ids: Vec<&str> = engine.list_rules().iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, vec!["first", "second", "third"]);
+    }
+
+    #[test]
+    fn test_priority_evaluated_highest_first() {
+        let mut engine = RewriteEngine::new();
+        // Both rules match the same request; the higher-priority one must be
+        // applied first so the lower-priority one overwrites it.
+        let mut low = rule_with_priority("low", 1);
+        low.url_regex = Some("http://example\\.com".to_string());
+        low.actions = vec![RewriteAction::SetUrl("http://low.example".to_string())];
+
+        let mut high = rule_with_priority("high", 255);
+        high.url_regex = Some("http://example\\.com".to_string());
+        high.actions = vec![RewriteAction::SetUrl("http://high.example".to_string())];
+
+        engine.add_rule(low);
+        engine.add_rule(high);
+
+        let result = engine.apply_rules(make_request("GET", "http://example.com"));
+
+        assert_eq!(result.applied_rules, vec!["high", "low"]);
+        assert_eq!(result.modified.url, "http://low.example");
+    }
+
+    #[test]
+    fn test_priority_defaults_to_100_when_missing() {
+        let json = r#"{
+            "id": "legacy",
+            "name": "Legacy",
+            "enabled": true,
+            "method_regex": null,
+            "url_regex": null,
+            "status_code": null,
+            "header_match": null,
+            "body_contains": null,
+            "actions": []
+        }"#;
+
+        let rule: RewriteRule = serde_json::from_str(json).expect("legacy rule should deserialize");
+        assert_eq!(rule.priority, DEFAULT_PRIORITY);
+        assert_eq!(rule.priority, 100);
+    }
+
+    #[test]
+    fn test_priority_round_trips_through_serde() {
+        let rule = rule_with_priority("round-trip", 200);
+        let encoded = serde_json::to_string(&rule).expect("serialize");
+        let decoded: RewriteRule = serde_json::from_str(&encoded).expect("deserialize");
+        assert_eq!(decoded.priority, 200);
+    }
+
+    #[test]
+    fn test_priority_out_of_range_is_rejected() {
+        let json = r#"{
+            "id": "bad",
+            "name": "Bad",
+            "enabled": true,
+            "priority": 256,
+            "method_regex": null,
+            "url_regex": null,
+            "status_code": null,
+            "header_match": null,
+            "body_contains": null,
+            "actions": []
+        }"#;
+
+        assert!(serde_json::from_str::<RewriteRule>(json).is_err());
     }
 }
