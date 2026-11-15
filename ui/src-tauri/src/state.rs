@@ -7,6 +7,7 @@ use flowlens_core::TrafficEvent;
 use flowlens_core::InterceptEngine;
 use flowlens_core::RewriteEngine;
 use flowlens_tls::{CaInfo, CaManager, DomainPolicy, InMemoryTlsEngine};
+use crate::proxy::ProxyRuntime;
 
 pub struct AppState {
     pub event_bus: Arc<BroadcastEventBus>,
@@ -15,6 +16,8 @@ pub struct AppState {
     pub running: Arc<AtomicBool>,
     pub pump_task: Mutex<Option<JoinHandle<()>>>,
     pub proxy_task: Mutex<Option<JoinHandle<()>>>,
+    pub proxy_runtime: Mutex<Option<Arc<ProxyRuntime>>>,
+    pub proxy_addr: Mutex<Option<std::net::SocketAddr>>,
     pub intercept: Arc<InterceptEngine>,
     pub rewrite_engine: Mutex<RewriteEngine>,
     pub ca_manager: Arc<Mutex<InMemoryTlsEngine>>,
@@ -34,6 +37,8 @@ impl AppState {
             running: Arc::new(AtomicBool::new(false)),
             pump_task: Mutex::new(None),
             proxy_task: Mutex::new(None),
+            proxy_runtime: Mutex::new(None),
+            proxy_addr: Mutex::new(None),
             intercept: Arc::new(InterceptEngine::new()),
             rewrite_engine: Mutex::new(RewriteEngine::new()),
             ca_manager: Arc::new(Mutex::new(ca_engine)),
