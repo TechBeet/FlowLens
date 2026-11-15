@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { UiEvent } from "../lib/types";
   import type { EventStore } from "../lib/stores/eventStore";
+  import * as api from "../lib/api";
 
   interface Props {
     running?: boolean;
@@ -8,7 +9,6 @@
     theme?: "dark" | "light";
     devices?: string[];
     selectedDevice?: string;
-    mockMode?: boolean;
     store?: EventStore;
     onstart?: () => void;
     onstop?: () => void;
@@ -23,7 +23,6 @@
     theme = "dark",
     devices = [],
     selectedDevice = $bindable(""),
-    mockMode = $bindable(false),
     store,
     onstart,
     onstop,
@@ -38,6 +37,10 @@
     } else {
       onstart?.();
     }
+  }
+
+  function addLog(msg: string) {
+    console.log("[CA]", msg);
   }
 </script>
 
@@ -64,18 +67,31 @@
     清除
   </button>
 
-  <label class="mock-toggle">
-    <input type="checkbox" bind:checked={mockMode} />
-    <span>Mock 模式</span>
-  </label>
-
   <button class="btn icon-btn" onclick={() => ontoggletheme?.()} title="切换主题">
     {theme === "dark" ? "☀" : "☾"}
   </button>
 
-  <span class="ca-status">
-    CA: {store ? "" : ""}设备 {devices.length}
-  </span>
+  <div class="ca-controls">
+    <button
+      class="btn btn-secondary"
+      onclick={async () => {
+        try {
+          const pem = await api.generateCA("FlowLens CA");
+          await api.installCA("FlowLens CA");
+          addLog(`已安装 CA: ${pem}`);
+        } catch (e) {
+          addLog(`CA 安装失败：${e}`);
+        }
+      }}>生成根 CA（HTTPS 解密）</button>
+    <button class="btn btn-danger" onclick={() => api.uninstallCA("FlowLens CA")} title="卸载根 CA">卸载根 CA</button>
+    <button
+      class="btn btn-primary"
+      onclick={async () => {
+        const status = await api.checkCAStatus("FlowLens CA");
+        addLog(`CA 状态: installed=${status.installed}, cn=${status.cn}`);
+      }}>检查 CA 状态</button>
+  </div>
+
 </div>
 
 <style>
@@ -159,6 +175,14 @@
 
   .mock-toggle input {
     cursor: pointer;
+  }
+
+  .ca-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    flex-wrap: wrap;
   }
 
   .ca-status {
