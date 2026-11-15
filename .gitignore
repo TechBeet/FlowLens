@@ -99,3 +99,9 @@ test.txt
 # purpose so the crate builds on a plain Windows host with only the Npcap
 # runtime installed. See wpdlib/README.md.
 
+
+# Playwright test artifacts
+ui/test-results/
+
+# VS Code user-specific state
+.vscode/extensions.json
