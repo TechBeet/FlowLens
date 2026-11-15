@@ -13,7 +13,9 @@
 # Cargo.lock is committed intentionally for reproducible builds
 
 # IDE
-.vscode/
+# Keep project launch/tasks configs for reproducible dev environment; ignore user-specific IDE state.
+!.vscode/launch.json
+!.vscode/tasks.json
 .idea/
 *.swp
 
