@@ -7,17 +7,23 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "tsc --noEmit",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
     "svelte-virtual": "^1.0.0-next.22"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@sveltejs/vite-plugin-svelte": "^5",
     "@tauri-apps/cli": "^2",
+    "@testing-library/svelte": "^5.2.4",
+    "jsdom": "^24.0.0",
     "svelte": "^5",
     "typescript": "^5",
-    "vite": "^6"
+    "vite": "^6",
+    "vitest": "^2.0.0"
   }
 }
