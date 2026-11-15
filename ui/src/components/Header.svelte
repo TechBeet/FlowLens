@@ -9,6 +9,9 @@
     onstart?: () => void;
     onstop?: () => void;
     ontoggletheme?: () => void;
+    caStatus?: { installed: boolean; cn: string | null };
+    oninstallca?: () => void;
+    onuninstallca?: () => void;
   }
 
   let {
@@ -19,6 +22,9 @@
     onstart,
     onstop,
     ontoggletheme,
+    caStatus = { installed: false, cn: null },
+    oninstallca,
+    onuninstallca,
   }: Props = $props();
 
   function handleCapture() {
@@ -39,6 +45,16 @@
   <div class="capture-indicator" class:active={running}>
     <span class="status-dot"></span>
     <span class="status-label">{running ? "捕获中" : "未捕获"}</span>
+  </div>
+
+  <div class="ca-indicator" class:installed={caStatus.installed} title={caStatus.installed ? "根 CA 已安装 — HTTPS 解密可用" : "根 CA 未安装 — HTTPS 流量无法解密"}>
+    <span class="status-dot"></span>
+    <span class="ca-label">CA: {caStatus.installed ? "已信任" : "未安装"}</span>
+    {#if caStatus.installed}
+      <button class="ca-btn" onclick={() => onuninstallca?.()} title="卸载根 CA 证书">卸载</button>
+    {:else}
+      <button class="ca-btn" onclick={() => oninstallca?.()} title="安装根 CA 证书以启用 HTTPS 解密">安装</button>
+    {/if}
   </div>
 
   <div class="stats-bar" aria-label="流量统计">
@@ -128,6 +144,59 @@
     background: var(--ok);
     box-shadow: 0 0 6px var(--ok);
     animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  /* ---- Root CA (HTTPS MITM decryption) status pill ---- */
+  .ca-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px 4px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--fg-dim);
+    white-space: nowrap;
+  }
+
+  .ca-indicator .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--err);
+  }
+
+  .ca-indicator.installed {
+    border-color: var(--ok);
+    color: var(--ok);
+  }
+
+  .ca-indicator.installed .status-dot {
+    background: var(--ok);
+    box-shadow: 0 0 6px var(--ok);
+  }
+
+  .ca-label {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ca-btn {
+    padding: 2px 8px;
+    font-size: 11px;
+    line-height: 1.4;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--fg);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .ca-btn:hover {
+    background: var(--hover);
+    border-color: var(--accent);
+    color: var(--fg);
   }
 
   .stats-bar {
