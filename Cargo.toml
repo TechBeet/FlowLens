@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "crates/flowlens-core",
+    "crates/flowlens-attribution",
+    "crates/flowlens-capture",
+    "crates/flowlens-cli",
+    "crates/flowlens-driver",
+    "crates/flowlens-export",
+    "crates/flowlens-installer",
+    "crates/flowlens-integration",
+    "crates/flowlens-mcp",
+    "crates/flowlens-protocol",
+    "crates/flowlens-replay",
+    "crates/flowlens-storage",
+    "crates/flowlens-tls",
+    "crates/flowlens-ui",
+    "ui/src-tauri",
+]
+
+exclude = ["ui/node_modules"]
