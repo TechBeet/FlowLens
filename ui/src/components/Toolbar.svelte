@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { UiEvent } from "../lib/types";
-  import type { EventStore } from "../lib/stores/eventStore";
+  import type { EventStore } from "../lib/stores/eventStore.svelte";
   import * as api from "../lib/api";
 
   interface Props {
