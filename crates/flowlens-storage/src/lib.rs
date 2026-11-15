@@ -222,8 +222,14 @@ impl StorageEngine for InMemoryStorage {
     }
 
     fn insert_session(&self, session: &TrafficSession) -> anyhow::Result<SessionId> {
-        let mut sessions = self.sessions.write().unwrap();
-        let mut next = self.next_id.write().unwrap();
+        let mut sessions = self
+            .sessions
+            .write()
+            .map_err(|poisoned| anyhow::anyhow!("sessions lock poisoned: {poisoned}"))?;
+        let mut next = self
+            .next_id
+            .write()
+            .map_err(|poisoned| anyhow::anyhow!("next_id lock poisoned: {poisoned}"))?;
         *next += 1;
         let id = SessionId(*next);
         let mut session = session.clone();
@@ -233,17 +239,26 @@ impl StorageEngine for InMemoryStorage {
     }
 
     fn get_session(&self, id: SessionId) -> anyhow::Result<Option<TrafficSession>> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self
+            .sessions
+            .read()
+            .map_err(|poisoned| anyhow::anyhow!("sessions lock poisoned: {poisoned}"))?;
         Ok(sessions.get(&id).cloned())
     }
 
     fn list_sessions(&self) -> anyhow::Result<Vec<TrafficSession>> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self
+            .sessions
+            .read()
+            .map_err(|poisoned| anyhow::anyhow!("sessions lock poisoned: {poisoned}"))?;
         Ok(sessions.values().cloned().collect())
     }
 
     fn delete_sessions(&self, before: i64) -> anyhow::Result<u64> {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self
+            .sessions
+            .write()
+            .map_err(|poisoned| anyhow::anyhow!("sessions lock poisoned: {poisoned}"))?;
         let to_delete: Vec<SessionId> = sessions
             .iter()
             .filter(|(_, s)| s.started_at < before)
@@ -257,7 +272,10 @@ impl StorageEngine for InMemoryStorage {
     }
 
     fn query_sessions(&self, query: &StorageQuery) -> anyhow::Result<Vec<TrafficSession>> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self
+            .sessions
+            .read()
+            .map_err(|poisoned| anyhow::anyhow!("sessions lock poisoned: {poisoned}"))?;
         let mut results: Vec<TrafficSession> = sessions
             .values()
             .filter(|s| {
@@ -609,6 +627,85 @@ mod tests {
             bytes_received: 0,
         };
         let id = storage.insert_session(&session).unwrap();
+        let got = storage.get_session(id).unwrap().unwrap();
+        assert_eq!(got.session_id, id);
+    }
+
+    /// Regression test: a thread panicking while holding a storage lock must
+    /// degrade to a clear `Err` instead of panicking, and the engine must keep
+    /// working through poisoned/recovered locks.
+    #[test]
+    fn test_in_memory_storage_survives_poisoned_lock() {
+        let storage = InMemoryStorage::new();
+        let session = TrafficSession {
+            session_id: SessionId(0),
+            conn: ConnectionKey {
+                src_addr: "127.0.0.1:12345".parse().unwrap(),
+                dst_addr: "8.8.8.8:53".parse().unwrap(),
+                protocol: TransportProtocol::Udp,
+                connection_id: 1,
+                timestamp: 0,
+                interface_guid: None,
+            },
+            process: ProcessInfo {
+                pid: 1234,
+                name: "test.exe".to_string(),
+                exe_path: None,
+                user_sid: String::new(),
+                arch: ProcessArch::X64,
+                match_quality: MatchQuality::Heuristic,
+            },
+            tls: None,
+            protocol: flowlens_core::models::ProtocolKind::Http1,
+            http_request: None,
+            http_response: None,
+            websocket_frames: Vec::new(),
+            sse_events: Vec::new(),
+            grpc_call: None,
+            started_at: 0,
+            ended_at: None,
+            bytes_sent: 0,
+            bytes_received: 0,
+        };
+
+        // Seed a session first so the map has valid contents to recover.
+        let id = storage.insert_session(&session).unwrap();
+        assert!(id.0 > 0);
+
+        // Poison the `sessions` lock by unwinding while holding its guard.
+        let poison_result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _guard = storage.sessions.write().unwrap();
+                panic!("boom while holding the sessions lock");
+            }));
+        assert!(poison_result.is_err());
+        assert!(storage.sessions.is_poisoned());
+
+        // Poisoning must degrade to a clear Err, never a panic.
+        let read_err = storage
+            .list_sessions()
+            .unwrap_err()
+            .to_string();
+        assert!(
+            read_err.contains("poisoned"),
+            "expected a poisoned lock error, got: {read_err}"
+        );
+        let write_err = storage
+            .insert_session(&session)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            write_err.contains("poisoned"),
+            "expected a poisoned lock error, got: {write_err}"
+        );
+
+        // Once the poison is cleared, the engine keeps functioning with all
+        // data intact.
+        storage.sessions.clear_poison();
+        let all = storage.list_sessions().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].session_id, id);
+
         let got = storage.get_session(id).unwrap().unwrap();
         assert_eq!(got.session_id, id);
     }
