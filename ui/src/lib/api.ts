@@ -1,6 +1,10 @@
 ﻿// FlowLens Tauri API bindings + theme management
 import { invoke } from "@tauri-apps/api/core";
 import type { TrafficStats } from "./types";
+import type { ShortcutMap } from "./shortcuts";
+import type { RewriteRule } from "./rewriteRules";
+
+export type { RewriteRule, RewriteAction } from "./rewriteRules";
 
 // ---------- Tauri commands ----------
 
@@ -68,7 +72,7 @@ export async function listPausedSessions(): Promise<unknown> {
 
 // ---------- Rewrite rules ----------
 
-export async function addRewriteRule(rule: Record<string, unknown>): Promise<void> {
+export async function addRewriteRule(rule: Partial<RewriteRule>): Promise<void> {
   await invoke("add_rewrite_rule", { rule });
 }
 
@@ -80,8 +84,8 @@ export async function toggleRewriteRule(id: string, enabled: boolean): Promise<b
   return (await invoke("toggle_rewrite_rule", { id, enabled })) as boolean;
 }
 
-export async function listRewriteRules(): Promise<unknown[]> {
-  return (await invoke("list_rewrite_rules")) as unknown[];
+export async function listRewriteRules(): Promise<RewriteRule[]> {
+  return (await invoke("list_rewrite_rules")) as RewriteRule[];
 }
 
 // ---------- Replay & compare ----------
@@ -242,6 +246,29 @@ export async function saveTheme(theme: Theme): Promise<void> {
 
 export function toggleTheme(current: Theme): Theme {
   return current === "dark" ? "light" : "dark";
+}
+
+// ---------- Keyboard shortcut persistence ----------
+
+/// Load persisted shortcut overrides. Returns an empty map when nothing is
+/// stored (or the backend is unavailable), so callers fall back to defaults.
+export async function loadShortcuts(): Promise<ShortcutMap> {
+  try {
+    const saved = await invoke<ShortcutMap | null>("read_shortcuts");
+    if (saved && typeof saved === "object") return saved;
+  } catch {
+    // Persistence is best-effort only
+  }
+  return {};
+}
+
+/// Persist shortcut overrides. Never throws: a failure must not break the UI.
+export async function saveShortcuts(shortcuts: ShortcutMap): Promise<void> {
+  try {
+    await invoke("write_shortcuts", { shortcuts });
+  } catch {
+    // Persistence is best-effort only
+  }
 }
 
 /// Set the maximum number of events to retain in the ring buffer.
