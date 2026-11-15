@@ -1205,4 +1205,28 @@ pub async fn stop_proxy(state: State<'_, AppState>) -> Result<bool, String> {
         None => Ok(false),
     }
 }
+/// Open the native "Save File" dialog and return the chosen absolute path.
+///
+/// The dialog runs on the main thread (a Tauri requirement), so the call blocks
+/// on the plugin's callback channel. Returns `Ok(None)` when the user cancels.
+#[tauri::command]
+pub async fn pick_save_path(
+    app: AppHandle,
+    default_name: Option<String>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let name = default_name.unwrap_or_else(|| "trace.har".to_string());
+    let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+
+    app.dialog()
+        .file()
+        .add_filter("HAR 1.2", &["har", "json"])
+        .set_file_name(&name)
+        .save_file(move |file_path| {
+            let _ = tx.send(file_path.map(|p| p.to_string()));
+        });
+
+    rx.recv().map_err(|e| format!("dialog closed unexpectedly: {e}"))
+}
 
