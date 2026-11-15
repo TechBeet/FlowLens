@@ -24,6 +24,14 @@
     class="filter-input"
   />
 
+  <label class="filter-label">进程</label>
+  <input
+    type="text"
+    bind:value={store.filterState.process}
+    placeholder="进程名或 PID"
+    class="filter-input"
+  />
+
   <label class="filter-label">PID</label>
   <input
     type="text"
