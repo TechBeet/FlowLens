@@ -72,6 +72,26 @@ commit_all_files.ps1
 commit_each_file.ps1
 commit_dirs.ps1
 commit_phase1.ps1
+commit_final.ps1
+untrack_artifacts.ps1
+
+# QA / build scratch output (generated locally while verifying, never shipped)
+clippy*.txt
+cargo_check*.txt
+cargo_clippy_out.txt
+npm_build_out*.txt
+build_err.txt
+build_out.txt
+build_full.txt
+buildlog.txt
+build_shortcuts.txt
+final_tests.txt
+vitest_new.txt
+core_clippy.txt
+tls_test.txt
+clippy_err.txt
+clippy_out.txt
+test.txt
 
 # Note: Npcap import libraries (wpdlib/*.lib, wpdlib/*.def) ARE committed on
 # purpose so the crate builds on a plain Windows host with only the Npcap
