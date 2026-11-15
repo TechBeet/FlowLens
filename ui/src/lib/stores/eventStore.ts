@@ -1,19 +1,28 @@
-// FlowLens Phase 1 — Event store using Svelte 5 runes
-import type { UiEvent, TrafficStats, FilterState } from "../types";
+﻿// FlowLens Phase 1 — Event store using Svelte 5 runes
+import type { UiEvent, TrafficStats, FilterState, TrafficEvent } from "../types";
 import * as api from "../api";
+import {
+  subscribeTrafficEvents,
+  filterEvents,
+  addBatchStats,
+  type AggregatedStats,
+} from "../composables";
 
-const DEFAULT_FILTER: FilterState = { host: "", pid: "", method: "", status: "" };
+const DEFAULT_FILTER: FilterState = { host: "", pid: "", process: "", method: "", status: "" };
 
 /**
  * Captures the live-capture workstation state.
  * Exposes reactive state ($state) and derived values ($derived/$derived.by)
  * plus async actions wired to the Tauri API.
+ *
+ * The store subscribes to the Tauri "traffic-event" event stream
+ * emitted by the capture pump in commands.rs (line 167).
  */
 export function createEventStore() {
   // ----- core reactive state -----
-  const events = $state<UiEvent[]>([]);
-  const selectedEvent = $state<UiEvent | null>(null);
-  const stats = $state<TrafficStats>({
+  let events = $state<UiEvent[]>([]);
+  let selectedEvent = $state<UiEvent | null>(null);
+  let stats = $state<TrafficStats>({
     connections: 0,
     http: 0,
     tls: 0,
@@ -21,26 +30,65 @@ export function createEventStore() {
     websocket: 0,
     total: 0,
   });
-  const filterState = $state<FilterState>({ ...DEFAULT_FILTER });
-  const loading = $state(false);
-  const error = $state<string | null>(null);
+  let filterState = $state<FilterState>({ ...DEFAULT_FILTER });
+  let loading = $state(false);
+  let error = $state<string | null>(null);
+
+  // ----- MAX_EVENTS initialization (once) -----
+  let MAX_EVENTS = 10000; // default
+  (async () => {
+    try {
+      const cap = await api.getEventMax();
+      MAX_EVENTS = cap;
+    } catch {
+      MAX_EVENTS = 10000;
+    }
+  })();
+
+  // ----- event batching buffer -----
+  let eventBuffer: TrafficEvent[] = [];
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  const BATCH_FLUSH_MS = 50;
+
+  function flushBuffer() {
+    if (eventBuffer.length === 0) {
+      flushTimer = null;
+      return;
+    }
+    const batch = [...eventBuffer];
+    eventBuffer.length = 0;
+    // Ring-buffer bounded append for the main events array
+    if (events.length >= MAX_EVENTS) {
+      events.splice(0, events.length - MAX_EVENTS + 1);
+    }
+    events.push(...batch);
+    // Update per-protocol stats via composable (mirrors Rust tally())
+    addBatchStats(stats as AggregatedStats, batch);
+    flushTimer = setTimeout(flushBuffer, BATCH_FLUSH_MS);
+  }
+
+  // ----- subscribe to Tauri event stream -----
+  // Uses the reusable subscribeTrafficEvents composable.
+  (async () => {
+    try {
+      const stop = subscribeTrafficEvents((ev) => {
+        const p = ev as TrafficEvent;
+        // Add to buffer instead of direct append
+        eventBuffer.push(p);
+        // Start flush timer if not already running
+        if (!flushTimer) {
+          flushTimer = setTimeout(flushBuffer, BATCH_FLUSH_MS);
+        }
+      });
+      // keep handle alive for the store lifetime; no cleanup needed until destroy
+      void stop;
+    } catch (e) {
+      setError(`订阅事件流失败：${e}`);
+    }
+  })();
 
   // ----- derived -----
-  const filteredEvents = $derived.by(() => {
-    const { host, pid, method, status } = filterState;
-    const h = host.toLowerCase();
-    const m = method.toLowerCase();
-    const s = status.toLowerCase();
-    const p = pid;
-    return events.filter((e) => {
-      const url = e.url || e.info || "";
-      if (h && !url.includes(h)) return false;
-      if (p && String(e.pid ?? "") !== p) return false;
-      if (m && (e.method ?? "").toLowerCase() !== m) return false;
-      if (s && (e.status ?? "").toLowerCase() !== s) return false;
-      return true;
-    });
-  });
+  const filteredEvents = $derived.by(() => filterEvents(events, filterState));
 
   const isEmpty = $derived(events.length === 0 && !loading);
 
@@ -49,7 +97,8 @@ export function createEventStore() {
     try {
       return await api.listDevices();
     } catch (e) {
-      throw new Error(`加载设备列表失败：${e}`);
+      setError(`加载设备列表失败：${e}`);
+      return [];
     }
   }
 
@@ -109,11 +158,14 @@ export function createEventStore() {
     }
   }
 
-  async function exportHAR(path: string) {
+  async function exportHAR(
+    path: string,
+    options?: Partial<api.HarExportOptions>,
+  ) {
     loading = true;
     error = null;
     try {
-      await api.exportHAR(path);
+      await api.exportHAR(path, options);
     } catch (e) {
       error = `导出 HAR 失败：${e}`;
       throw e;
@@ -121,7 +173,6 @@ export function createEventStore() {
       loading = false;
     }
   }
-
   async function getCAPem() {
     return api.getCAPem();
   }
@@ -146,13 +197,15 @@ export function createEventStore() {
     selectedEvent = ev;
   }
 
+  // Maximum number of events to retain in the ring buffer.
+  // Initialized from Tauri getEventMax command, falls back to 10000.
   function appendEvent(ev: UiEvent) {
     // Keep the ring buffer bounded to avoid unbounded memory growth.
-    const MAX = 5000;
-    if (events.length >= MAX) {
-      events.splice(0, events.length - MAX + 1);
+    if (events.length >= MAX_EVENTS) {
+      events.splice(0, events.length - MAX_EVENTS + 1);
     }
     events.push(ev);
+    addBatchStats(stats as AggregatedStats, [ev]);
   }
 
   function setError(msg: string | null) {
@@ -189,3 +242,15 @@ export function createEventStore() {
 }
 
 export type EventStore = ReturnType<typeof createEventStore>;
+
+/**
+ * Reusable composable to access the singleton event store.
+ * Components can import this instead of calling createEventStore() directly.
+ */
+let _singleton: EventStore | null = null;
+export function useEventStore(): EventStore {
+  if (!_singleton) {
+    _singleton = createEventStore();
+  }
+  return _singleton;
+}
