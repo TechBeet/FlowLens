@@ -10,7 +10,7 @@ use flowlens_tls::CaManager;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Flattened view of a raw `TrafficEvent`, matching the shape declared in
 /// `ui/src/lib/types.ts`.
@@ -37,6 +37,8 @@ pub struct UiEvent {
 
 impl UiEvent {
     fn from_row(row: &TrafficRow, id: u64) -> Self {
+        let process_name = row.process_info.as_ref().map(|p| p.name.clone());
+        let pid = row.process_info.as_ref().map(|p| p.pid);
         Self {
             id: id.to_string(),
             time: format_ts(row.timestamp),
@@ -48,8 +50,8 @@ impl UiEvent {
             method: non_empty(&row.method),
             url: non_empty(&row.path),
             status: non_empty(&row.status),
-            process_name: None,
-            pid: None,
+            process_name,
+            pid,
             protocol: None,
             sni: None,
             tls_version: None,
@@ -248,6 +250,44 @@ pub async fn list_devices() -> Result<Vec<String>, String> {
     Ok(flowlens_capture::list_available_devices())
 }
 
+/// Options controlling what the HAR 1.2 exporter includes in each entry.
+///
+/// The webview supplies these from the export modal. They are plain booleans so
+/// the JSON contract stays simple: `{ include_headers, include_bodies, include_timing }`.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct HarExportOptions {
+    /// Emit request and response `headers` (and the derived `headersSize`).
+    pub include_headers: Option<bool>,
+    /// Emit request `postData.text` and response `content.text` (base64).
+    pub include_bodies: Option<bool>,
+    /// Emit `time` and the `timings` block.
+    pub include_timing: Option<bool>,
+}
+
+impl Default for HarExportOptions {
+    fn default() -> Self {
+        Self {
+            include_headers: Some(true),
+            include_bodies: Some(true),
+            include_timing: Some(true),
+        }
+    }
+}
+
+impl HarExportOptions {
+    fn headers(self) -> bool {
+        self.include_headers.unwrap_or(true)
+    }
+
+    fn bodies(self) -> bool {
+        self.include_bodies.unwrap_or(true)
+    }
+
+    fn timing(self) -> bool {
+        self.include_timing.unwrap_or(true)
+    }
+}
+
 /// HAR 1.2 entry request/response timing info
 #[derive(Debug, Clone, Serialize)]
 struct HarTiming {
@@ -361,7 +401,7 @@ fn format_http_version(v: &flowlens_core::models::HttpVersion) -> String {
 
 fn base64_encode(data: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
     let mut i = 0;
     while i < data.len() {
         let b0 = data[i];
@@ -396,7 +436,10 @@ fn format_iso_timestamp(micros: i64) -> String {
 pub async fn export_har(
     state: State<'_, AppState>,
     path: PathBuf,
+    options: Option<HarExportOptions>,
 ) -> Result<(), String> {
+    let options = options.unwrap_or_default();
+
     let events_guard = state.events.lock().map_err(|e| e.to_string())?;
     let events = events_guard.clone();
     drop(events_guard);
@@ -408,25 +451,31 @@ pub async fn export_har(
     for event in events {
         match event {
             TrafficEvent::HttpRequest { session_id, conn: _, request } => {
+                let headers_vec: Vec<HarHeader> = request.headers.iter()
+                    .map(|(n, v)| HarHeader { name: n.clone(), value: v.clone() })
+                    .collect();
+                let headers_size: i64 = headers_vec.iter()
+                    .map(|h| (h.name.len() + h.value.len()) as i64)
+                    .sum();
+
                 let req = HarRequest {
                     method: request.method.clone(),
                     url: request.url.clone(),
                     http_version: format_http_version(&request.request_line_version),
                     cookies: Vec::new(),
-                    headers: request.headers.iter()
-                        .map(|(n, v)| HarHeader { name: n.clone(), value: v.clone() })
-                        .collect(),
+                    headers: if options.headers() { headers_vec.clone() } else { Vec::new() },
                     query_string: Vec::new(),
-                    post_data: request.body.as_ref().and_then(|b| {
-                        if b.is_empty() { None } else {
-                            Some(HarPostData {
-                                mime_type: "application/octet-stream".to_string(),
-                                text: base64_encode(b),
-                            })
-                        }
-                    }),
-                    headers_size: request.headers.iter()
-                        .map(|(n, v)| (n.len() + v.len()) as i64).sum(),
+                    post_data: if options.bodies() {
+                        request.body.as_ref().and_then(|b| {
+                            if b.is_empty() { None } else {
+                                Some(HarPostData {
+                                    mime_type: "application/octet-stream".to_string(),
+                                    text: base64_encode(b),
+                                })
+                            }
+                        })
+                    } else { None },
+                    headers_size: if options.headers() { headers_size } else { 0 },
                     body_size: request.body_size as i64,
                 };
                 pending_requests.insert(session_id.0, (req, request.timestamp));
@@ -439,6 +488,12 @@ pub async fn export_har(
                         .find(|(n, _)| n.eq_ignore_ascii_case("content-type"))
                         .map(|(_, v)| v.clone())
                         .unwrap_or_else(|| "application/octet-stream".to_string());
+                    let resp_headers_vec: Vec<HarHeader> = response.headers.iter()
+                        .map(|(n, v)| HarHeader { name: n.clone(), value: v.clone() })
+                        .collect();
+                    let resp_headers_size: i64 = resp_headers_vec.iter()
+                        .map(|h| (h.name.len() + h.value.len()) as i64)
+                        .sum();
                     let entry = HarEntry {
                         pageref: None,
                         started_date_time: format_iso_timestamp(req_ts),
@@ -448,25 +503,28 @@ pub async fn export_har(
                             status_text: response.status_text.clone(),
                             http_version: format_http_version(&response.version),
                             cookies: Vec::new(),
-                            headers: response.headers.iter()
-                                .map(|(n, v)| HarHeader { name: n.clone(), value: v.clone() })
-                                .collect(),
+                            headers: if options.headers() { resp_headers_vec.clone() } else { Vec::new() },
                             content: HarContent {
                                 size: response.body_size as i64,
                                 mime_type: content_type,
-                                text: response.body.as_ref().map(|b| base64_encode(b)),
+                                text: if options.bodies() {
+                                    response.body.as_ref().map(|b| base64_encode(b))
+                                } else { None },
                             },
                             redirect_url: String::new(),
-                            headers_size: response.headers.iter()
-                                .map(|(n, v)| (n.len() + v.len()) as i64).sum(),
+                            headers_size: if options.headers() { resp_headers_size } else { 0 },
                             body_size: response.body_size as i64,
                         },
                         cache: HarCache { before_request: None, after_request: None },
-                        time: time_delta.max(0),
-                        timings: HarTiming {
-                            send: 0,
-                            wait: time_delta / 2,
-                            receive: time_delta / 2,
+                        time: if options.timing() { time_delta.max(0) } else { 0 },
+                        timings: if options.timing() {
+                            HarTiming {
+                                send: 0,
+                                wait: time_delta / 2,
+                                receive: time_delta / 2,
+                            }
+                        } else {
+                            HarTiming { send: 0, wait: 0, receive: 0 }
                         },
                     };
                     entries.push(entry);
@@ -491,8 +549,10 @@ pub async fn export_har(
     };
 
     let json = serde_json::to_string_pretty(&har).map_err(|e| e.to_string())?;
-    let mut file = File::create(&path).map_err(|e| e.to_string())?;
-    file.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
+    let mut file = File::create(&path)
+        .map_err(|e| format!("无法创建文件 {}: {e}", path.display()))?;
+    file.write_all(json.as_bytes())
+        .map_err(|e| format!("写入文件 {} 失败: {e}", path.display()))?;
 
     Ok(())
 }
@@ -650,7 +710,7 @@ pub async fn replay_request(
         .await
         .ok_or_else(|| format!("Request not found for session {}", session_id))?;
     
-    let client = ReplayClient::new().map_err(|e| e.to_string())?;
+    let client = ReplayClient::new();
     let response = client.replay(&request).await.map_err(|e| e.to_string())?;
     
     serde_json::to_value(response).map_err(|e| e.to_string())
@@ -692,6 +752,157 @@ pub async fn auto_release_paused(
         .await
         .map_err(|e| e.to_string())
 }
+
+// ---------- Theme persistence (simple JSON file under the temp dir) ----------
+
+fn theme_file_path() -> PathBuf {
+    let mut p = std::env::temp_dir();
+    p.push("flowlens_theme.txt");
+    p
+}
+
+/// Read the persisted theme preference, defaulting to "dark".
+#[tauri::command]
+pub async fn read_theme() -> Result<String, String> {
+    match std::fs::read_to_string(theme_file_path()) {
+        Ok(s) => {
+            let s = s.trim().to_string();
+            if s.is_empty() { Ok("dark".to_string()) } else { Ok(s) }
+        }
+        Err(_) => Ok("dark".to_string()),
+    }
+}
+
+/// Persist the theme preference (best-effort; never fails the UI).
+#[tauri::command]
+pub async fn write_theme(theme: String) -> Result<(), String> {
+    let path = theme_file_path();
+    std::fs::write(&path, theme).map_err(|e| format!("failed to write theme: {e}"))
+}
+
+// ---------- Event ring-buffer cap (event_max.txt) ----------
+
+fn event_max_file_path() -> PathBuf {
+    let mut p = std::env::temp_dir();
+    p.push("flowlens_event_max.txt");
+    p
+}
+
+/// Persist the maximum number of events retained in the frontend ring buffer.
+#[tauri::command]
+pub async fn set_event_max(cap: usize) -> Result<(), String> {
+    let cap = cap.clamp(100, 50_000);
+    std::fs::write(event_max_file_path(), cap.to_string())
+        .map_err(|e| format!("failed to write event max: {e}"))
+}
+
+/// Read the persisted event ring-buffer cap (default 10 000).
+#[tauri::command]
+pub async fn get_event_max() -> Result<usize, String> {
+    match std::fs::read_to_string(event_max_file_path()) {
+        Ok(s) => Ok(s.trim().parse::<usize>().unwrap_or(10_000).clamp(100, 50_000)),
+        Err(_) => Ok(10_000),
+    }
+}
+
+// ---------- Per-host (SNI) decryption policy ----------
+
+/// Serializable per-host decryption rule returned to the frontend.
+#[derive(Debug, Clone, Serialize)]
+pub struct UiDecryptEntry {
+    pub domain: String,
+    pub decrypt: bool,
+    pub wildcard: bool,
+    pub cert_ready: bool,
+    pub added_at: i64,
+}
+
+/// Serializable leaf certificate returned to the frontend.
+#[derive(Debug, Clone, Serialize)]
+pub struct SniCertInfo {
+    pub sni: String,
+    pub subject_cn: String,
+    pub fingerprint_sha256: String,
+    pub cert_pem: String,
+    pub key_pem: String,
+    pub sans: Vec<String>,
+}
+
+fn decrypt_entry(
+    rule: &flowlens_tls::DomainRule,
+    engine: &flowlens_tls::InMemoryTlsEngine,
+) -> UiDecryptEntry {
+    UiDecryptEntry {
+        domain: rule.domain.clone(),
+        decrypt: rule.decrypt,
+        wildcard: rule.wildcard,
+        cert_ready: engine.issued_snis().contains(&rule.domain),
+        added_at: 0,
+    }
+}
+
+#[tauri::command]
+pub async fn list_decrypt_domains(state: State<'_, AppState>) -> Result<Vec<UiDecryptEntry>, String> {
+    let policy = state.decrypt_policy.lock().map_err(|e| e.to_string())?;
+    let engine = state.ca_manager.lock().map_err(|e| e.to_string())?;
+    Ok(policy.rules().iter().map(|r| decrypt_entry(r, &engine)).collect())
+}
+
+#[tauri::command]
+pub async fn add_decrypt_domain(
+    state: State<'_, AppState>,
+    domain: String,
+) -> Result<UiDecryptEntry, String> {
+    let rule = {
+        let mut policy = state.decrypt_policy.lock().map_err(|e| e.to_string())?;
+        policy.add(&domain, true).map_err(|e| e.to_string())?
+    };
+    let engine = state.ca_manager.lock().map_err(|e| e.to_string())?;
+    Ok(decrypt_entry(&rule, &engine))
+}
+
+#[tauri::command]
+pub async fn remove_decrypt_domain(
+    state: State<'_, AppState>,
+    domain: String,
+) -> Result<bool, String> {
+    let mut policy = state.decrypt_policy.lock().map_err(|e| e.to_string())?;
+    Ok(policy.remove(&domain))
+}
+
+#[tauri::command]
+pub async fn toggle_decrypt_domain(
+    state: State<'_, AppState>,
+    domain: String,
+    enable: bool,
+) -> Result<UiDecryptEntry, String> {
+    let rule = {
+        let mut policy = state.decrypt_policy.lock().map_err(|e| e.to_string())?;
+        policy
+            .set_decrypt(&domain, enable)
+            .ok_or_else(|| format!("domain not found: {domain}"))?
+    };
+    let engine = state.ca_manager.lock().map_err(|e| e.to_string())?;
+    Ok(decrypt_entry(&rule, &engine))
+}
+
+#[tauri::command]
+pub async fn issue_for_sni(
+    state: State<'_, AppState>,
+    sni: String,
+) -> Result<SniCertInfo, String> {
+    let engine = state.ca_manager.lock().map_err(|e| e.to_string())?;
+    let issued = engine.ensure_leaf_cert(&sni).map_err(|e| e.to_string())?;
+    Ok(SniCertInfo {
+        sni: issued.sni,
+        subject_cn: issued.subject_cn,
+        fingerprint_sha256: issued.fingerprint_sha256,
+        cert_pem: issued.cert_pem,
+        key_pem: issued.key_pem,
+        sans: issued.sans,
+    })
+}
+
 
 /// Return full CA information (CN, PEM, fingerprint, installed_at).
 #[tauri::command]
@@ -948,3 +1159,50 @@ pub async fn delete_session(
     let deleted = (before - events.len()) as u64;
     Ok(serde_json::json!(deleted))
 }
+
+/// Start the SNI-aware MITM proxy listener.
+///
+/// The listener shares the same `ca_manager` and `decrypt_policy` handles as
+/// the UI commands, so per-host rules (including the `toggle_decrypt_domain`
+/// switch) are honoured live on every accepted connection.
+#[tauri::command]
+pub async fn start_proxy(
+    state: State<'_, AppState>,
+    port: Option<u16>,
+) -> Result<u16, String> {
+    {
+        let slot = state.proxy_task.lock().map_err(|e| e.to_string())?;
+        if slot.is_some() {
+            return Err("proxy already running".into());
+        }
+    }
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port.unwrap_or(8888)));
+    let runtime = std::sync::Arc::new(crate::proxy::ProxyRuntime::new(&state));
+    let handle = tokio::spawn(async move {
+        if let Err(e) = runtime.run_listener(addr).await {
+            tracing::error!(error = %e, "MITM proxy listener stopped");
+        }
+    });
+    let bound_port = addr.port();
+    state
+        .proxy_task
+        .lock()
+        .map_err(|e| e.to_string())?
+        .replace(handle);
+    Ok(bound_port)
+}
+
+/// Stop the SNI-aware MITM proxy listener, if running.
+#[tauri::command]
+pub async fn stop_proxy(state: State<'_, AppState>) -> Result<bool, String> {
+    let mut slot = state.proxy_task.lock().map_err(|e| e.to_string())?;
+    match slot.take() {
+        Some(handle) => {
+            handle.abort();
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
