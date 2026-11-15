@@ -152,8 +152,8 @@ mod tests {
             grpc_call: None,
             started_at: ts,
             ended_at: None,
-            bytes_sent: 100u64 + id as u64,
-            bytes_received: 200u64 + id as u64,
+            bytes_sent: 100u64 + id,
+            bytes_received: 200u64 + id,
         }
     }
 
