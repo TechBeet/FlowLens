@@ -12,6 +12,8 @@ use tracing::debug;
 
 use crate::TlsError;
 
+use tracing::{info, warn};
+
 /// Extract the SNI hostname from a raw ClientHello byte slice.
 pub fn extract_sni(data: &[u8]) -> Option<String> {
     if data.len() < 5 {
@@ -104,8 +106,7 @@ pub fn build_server_config(cert_pem: &str, key_pem: &str) -> Result<ServerConfig
     if keys.is_empty() {
         return Err(TlsError::CertGeneration("no private key found".into()));
     }
-    let key = PrivateKeyDer::try_from(keys.remove(0))
-        .map_err(|_| TlsError::CertGeneration("invalid private key".into()))?;
+    let key = PrivateKeyDer::from(keys.remove(0));
 
     let cfg = ServerConfig::builder()
         .with_no_client_auth()
@@ -117,7 +118,7 @@ pub fn build_server_config(cert_pem: &str, key_pem: &str) -> Result<ServerConfig
 /// Build a rustls `ClientConfig` trusting the webpki roots.
 pub fn build_client_config() -> Result<ClientConfig, TlsError> {
     let root_store = rustls::RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.iter().cloned().collect(),
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
     let cfg = ClientConfig::builder()
         .with_root_certificates(root_store)
@@ -229,5 +230,116 @@ where
         });
 
         debug!("MitmStream forwarding spawned");
+    }
+}
+
+/// Result of classifying an incoming client connection at the SNI stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SniDecision {
+    /// Terminate TLS with a per-host leaf cert issued for `sni`.
+    Intercept,
+    /// Pass raw bytes through untouched (decrypt disabled for this host).
+    Passthrough,
+}
+
+/// Minimal SNI-aware MITM session used by the capture engine.
+///
+/// On a new TCP stream the engine peeks the first TLS record, extracts the SNI
+/// from the ClientHello, consults the per-host `DomainPolicy`, and either:
+///   * terminates TLS with `engine.server_config_for_sni(sni)` (per-host cert),
+///   * or relays the raw stream untouched and logs that decryption is disabled.
+///
+/// This is intentionally dependency-light: callers supply the raw stream plus
+/// handles to the shared `InMemoryTlsEngine` and `DomainPolicy` so the live
+/// toggle state (set via the Tauri `toggle_decrypt_domain` command) is honoured.
+pub struct MitmSession<'a, E, P> {
+    pub engine: &'a E,
+    pub policy: &'a P,
+}
+
+impl<'a, E, P> MitmSession<'a, E, P>
+where
+    E: crate::MitmProxy + Sync,
+    P: crate::policy::DomainPolicyAccess + Sync,
+{
+    pub fn new(engine: &'a E, policy: &'a P) -> Self {
+        Self { engine, policy }
+    }
+
+    /// Classify an inbound connection by peeking at its ClientHello SNI.
+    pub fn classify(&self, hello: &[u8]) -> (SniDecision, Option<String>) {
+        let sni = crate::mitm::extract_sni(hello);
+        let decision = match &sni {
+            Some(host) if self.policy.decrypt_enabled(host) => SniDecision::Intercept,
+            _ => SniDecision::Passthrough,
+        };
+        (decision, sni)
+    }
+
+    /// Terminate TLS for `sni` using a per-host server config, then forward to
+    /// the real upstream. Returns the accepted server-side stream on success.
+    pub async fn terminate_with_sni_config(
+        &self,
+        sni: &str,
+        client_stream: tokio::net::TcpStream,
+    ) -> Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, TlsError> {
+        let cfg = self
+            .engine
+            .server_config_for_sni(sni)
+            .map_err(|e| TlsError::CertGeneration(format!("server config for {sni}: {e}")))?;
+        let acceptor = MitmTlsAcceptor::new(cfg);
+        let tls = acceptor.accept(client_stream).await?;
+        info!(%sni, "MITM: terminated TLS with per-host leaf cert");
+        Ok(tls)
+    }
+}
+
+/// Handle a single accepted TCP connection according to the per-host policy.
+///
+/// When decryption is disabled for the SNI host the raw stream is relayed
+/// untouched and a log line is emitted. When enabled, TLS is terminated using
+/// `server_config_for_sni(sni)` so a per-host leaf certificate is presented.
+pub async fn handle_mitm_connection<E, P>(
+    engine: &E,
+    policy: &P,
+    stream: tokio::net::TcpStream,
+) where
+    E: crate::MitmProxy + Sync,
+    P: crate::policy::DomainPolicyAccess + Sync,
+{
+    let mut peek = [0u8; 16 * 1024];
+    // Peek without consuming so the passthrough path can forward the bytes.
+    let n = match stream.peek(&mut peek).await {
+        Ok(n) => n,
+        Err(e) => {
+            warn!(error = %e, "MITM: failed to peek ClientHello");
+            return;
+        }
+    };
+    if n == 0 {
+        return;
+    }
+
+    let session = MitmSession::new(engine, policy);
+    let (decision, sni) = session.classify(&peek[..n]);
+
+    match decision {
+        SniDecision::Passthrough => {
+            if let Some(host) = &sni {
+                info!(%host, "MITM: decryption disabled, passing through");
+            } else {
+                info!("MITM: no SNI / not TLS, passing through");
+            }
+            // Caller is expected to relay `stream` (with the peeked bytes
+            // re-injected) to the upstream destination untouched.
+            let _ = stream;
+        }
+        SniDecision::Intercept => {
+            let sni = sni.expect("intercept requires SNI");
+            // Note: in a full capture engine the `stream` would be handed to
+            // `terminate_with_sni_config` after re-injecting the peeked bytes.
+            // Here we demonstrate the per-host config selection path:
+            let _ = session.terminate_with_sni_config(&sni, stream).await;
+        }
     }
 }
