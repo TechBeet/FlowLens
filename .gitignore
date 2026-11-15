@@ -61,6 +61,17 @@ ui/src-tauri/gen/
 check_out.txt
 qa_test_output.txt
 test_out.txt
+*.log
+test_link.log
+test_run.log
+build_check.log
+qa_*.txt
+
+# Local scripts used for one-off maintenance commits (not part of the product)
+commit_all_files.ps1
+commit_each_file.ps1
+commit_dirs.ps1
+commit_phase1.ps1
 
 # Note: Npcap import libraries (wpdlib/*.lib, wpdlib/*.def) ARE committed on
 # purpose so the crate builds on a plain Windows host with only the Npcap
