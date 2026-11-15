@@ -1,4 +1,4 @@
-// FlowLens Tauri API bindings + theme management
+﻿// FlowLens Tauri API bindings + theme management
 import { invoke } from "@tauri-apps/api/core";
 import type { TrafficStats } from "./types";
 
@@ -24,8 +24,19 @@ export async function listDevices(): Promise<string[]> {
   return (await invoke("list_devices")) as string[];
 }
 
-export async function exportHAR(path: string): Promise<void> {
-  await invoke("export_har", { path });
+/// Per-entry options controlling what the HAR 1.2 exporter emits.
+/// All three are optional and default to `true` on the Rust side.
+export interface HarExportOptions {
+  include_headers: boolean;
+  include_bodies: boolean;
+  include_timing: boolean;
+}
+
+export async function exportHAR(
+  path: string,
+  options?: Partial<HarExportOptions>,
+): Promise<void> {
+  await invoke("export_har", { path, options });
 }
 
 // ---------- Session interception ----------
@@ -71,6 +82,23 @@ export async function listRewriteRules(): Promise<unknown[]> {
 
 export async function replayRequest(sessionId: number): Promise<unknown> {
   return await invoke("replay_request", { session_id: sessionId });
+}
+
+/// Replay a session after an optional delay with custom header overrides.
+///
+/// `delayMs` is applied in the webview so that batch replay can space out
+/// successive requests without needing a separate backend command.
+/// `headers` is forwarded to the backend (which may ignore it until the
+/// command grows header support), so callers never have to branch.
+export async function replayRequestWithDelay(
+  sessionId: number,
+  delayMs: number,
+  headers: Record<string, string> = {}
+): Promise<unknown> {
+  if (delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return await invoke("replay_request", { session_id: sessionId, headers });
 }
 
 export async function compareSessions(idA: number, idB: number): Promise<unknown> {
@@ -129,19 +157,58 @@ export async function deleteSessions(before?: number): Promise<number> {
   return (await invoke("delete_sessions", { before })) as number;
 }
 
+/// Per-host decryption policy endpoints (SNI-aware MITM certificate management).
+
+export interface UiDecryptEntry {
+  domain: string;
+  decrypt: boolean;
+  wildcard: boolean;
+  cert_ready?: boolean;
+  added_at?: number;
+}
+
+export interface SniCertInfo {
+  sni: string;
+  subject_cn: string;
+  fingerprint_sha256: string;
+  cert_pem: string;
+  key_pem: string;
+  sans: string[];
+}
+
+export async function listDecryptDomains(): Promise<UiDecryptEntry[]> {
+  return (await invoke("list_decrypt_domains")) as UiDecryptEntry[];
+}
+
+export async function addDecryptDomain(domain: string): Promise<UiDecryptEntry> {
+  return (await invoke("add_decrypt_domain", { domain })) as UiDecryptEntry;
+}
+
+export async function removeDecryptDomain(domain: string): Promise<boolean> {
+  return (await invoke("remove_decrypt_domain", { domain })) as boolean;
+}
+
+export async function toggleDecryptDomain(
+  domain: string,
+  enable: boolean
+): Promise<UiDecryptEntry> {
+  return (await invoke("toggle_decrypt_domain", { domain, enable })) as UiDecryptEntry;
+}
+
+export async function issueForSni(sni: string): Promise<SniCertInfo> {
+  return (await invoke("issue_for_sni", { sni })) as SniCertInfo;
+}
+
 // ---------- Theme management ----------
 
 export type Theme = "dark" | "light";
 
-const STORAGE_KEY = "flowlens-theme";
-
-export function loadTheme(): Theme {
-  if (typeof window === "undefined") return "dark";
+export async function loadTheme(): Promise<Theme> {
   try {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
+    const saved = await invoke<string>("read_theme");
     if (saved === "dark" || saved === "light") return saved;
   } catch {
-    // localStorage may be unavailable (private mode) - fall through to default
+    // Fall through to default
   }
   // Fall back to the OS preference
   if (typeof window !== "undefined" && window.matchMedia) {
@@ -159,9 +226,9 @@ export function applyTheme(theme: Theme): void {
   document.documentElement.setAttribute("data-theme", theme);
 }
 
-export function saveTheme(theme: Theme): void {
+export async function saveTheme(theme: Theme): Promise<void> {
   try {
-    window.localStorage.setItem(STORAGE_KEY, theme);
+    await invoke("write_theme", { theme });
   } catch {
     // Persistence is best-effort only
   }
@@ -170,3 +237,21 @@ export function saveTheme(theme: Theme): void {
 export function toggleTheme(current: Theme): Theme {
   return current === "dark" ? "light" : "dark";
 }
+
+/// Set the maximum number of events to retain in the ring buffer.
+/// Persists the cap via the Tauri command; the eventStore will read this file on init.
+export async function setEventMax(cap: number): Promise<void> {
+  await invoke<void>("set_event_max", { cap });
+}
+
+/// Get the maximum number of events from event_max.txt.
+/// Returns the stored cap or default 10000 if file doesn't exist or on error.
+export async function getEventMax(): Promise<number> {
+  try {
+    return await invoke<number>("get_event_max");
+  } catch (error) {
+    console.warn("Failed to get event max:", error);
+    return 10000;
+  }
+}
+
