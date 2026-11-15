@@ -1,0 +1,110 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Tauri: Dev (npm run tauri dev)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "tauri", "dev"],
+      "cwd": "${workspaceFolder}/ui",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "presentation": {
+        "hidden": false,
+        "group": "tauri",
+        "order": 1
+      }
+    },
+    {
+      "name": "Vite: Preview (dist, Vite only)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:4173",
+      "webRoot": "${workspaceFolder}/ui",
+      "sourceMaps": true,
+      "preLaunchTask": "ui: preview",
+      "internalConsoleOptions": "openOnSessionStart",
+      "presentation": {
+        "hidden": false,
+        "group": "vite",
+        "order": 1
+      }
+    },
+    {
+      "name": "Tauri: Dev (webview, Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/ui",
+      "sourceMaps": true,
+      "preLaunchTask": "ui: dev",
+      "postDebugTask": "ui: stop dev",
+      "internalConsoleOptions": "openOnSessionStart"
+    },
+    {
+      "name": "Tauri: Dev (webview, Edge)",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/ui",
+      "sourceMaps": true,
+      "preLaunchTask": "ui: dev",
+      "postDebugTask": "ui: stop dev",
+      "internalConsoleOptions": "openOnSessionStart"
+    },
+    {
+      "name": "Tauri: Rust app (lldb launch)",
+      "type": "lldb",
+      "request": "launch",
+      "sourceLanguages": ["rust"],
+      "program": "${workspaceFolder}/ui/src-tauri/target/debug/flowlens-tauri.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}/ui/src-tauri",
+      "stopOnEntry": false,
+      "terminal": "integrated",
+      "preLaunchTask": "tauri: build (debug)"
+    },
+    {
+      "name": "Rust: Attach to running FlowLens (pick process)",
+      "type": "lldb",
+      "request": "attach",
+      "pid": "${command:pickMyProcess}",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "name": "Rust: Attach to flowlens-tauri.exe",
+      "type": "lldb",
+      "request": "attach",
+      "program": "${workspaceFolder}/ui/src-tauri/target/debug/flowlens-tauri.exe",
+      "sourceLanguages": ["rust"],
+      "waitFor": true
+    },
+    {
+      "name": "CLI: flowlens-cli (lldb launch)",
+      "type": "lldb",
+      "request": "launch",
+      "sourceLanguages": ["rust"],
+      "program": "${workspaceFolder}/crates/flowlens-cli/target/debug/flowlens-cli.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "stopOnEntry": false,
+      "preLaunchTask": "cli: build (debug)"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Tauri: Rust app + webview (compound)",
+      "configurations": [
+        "Tauri: Rust app (lldb launch)",
+        "Tauri: Dev (webview, Chrome)"
+      ],
+      "stopAll": true,
+      "presentation": {
+        "hidden": false,
+        "group": "1",
+        "order": 1
+      }
+    }
+  ]
+}
