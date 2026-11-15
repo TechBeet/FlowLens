@@ -210,6 +210,62 @@ mod tests {
         assert!(!InterceptEngine::rule_matches(&rule, Some(&req2), None));
     }
 
+    #[test]
+    fn rule_matches_status_and_headers() {
+        let status_rule = BreakpointRule {
+            id: "r2".to_string(),
+            name: "r2".to_string(),
+            enabled: true,
+            method: None,
+            url_regex: None,
+            status_code: Some(404),
+            header: None,
+            body_contains: None,
+        };
+
+        let req = make_request("GET", "http://example.com/x", None);
+        let not_found = make_response(404, Some(br#"{"error":"missing"}"#));
+        assert!(InterceptEngine::rule_matches(
+            &status_rule,
+            Some(&req),
+            Some(&not_found)
+        ));
+
+        // A non-matching status code must reject the pair.
+        let ok = make_response(200, None);
+        assert!(!InterceptEngine::rule_matches(
+            &status_rule,
+            Some(&req),
+            Some(&ok)
+        ));
+
+        // Header rules match case-insensitively on either side of the exchange.
+        let header_rule = BreakpointRule {
+            id: "r3".to_string(),
+            name: "r3".to_string(),
+            enabled: true,
+            method: None,
+            url_regex: None,
+            status_code: None,
+            header: Some(("Content-Type".to_string(), "application/json".to_string())),
+            body_contains: None,
+        };
+        let mut with_header = make_response(404, None);
+        with_header
+            .headers
+            .push(("content-type".to_string(), "application/json".to_string()));
+        assert!(InterceptEngine::rule_matches(
+            &header_rule,
+            None,
+            Some(&with_header)
+        ));
+        assert!(!InterceptEngine::rule_matches(
+            &header_rule,
+            Some(&req),
+            Some(&ok)
+        ));
+    }
+
     #[tokio::test]
     async fn test_engine_pause_release_flow() {
         let engine = InterceptEngine::new();
