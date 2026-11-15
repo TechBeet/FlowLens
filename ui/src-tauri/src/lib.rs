@@ -59,6 +59,7 @@ pub fn run() {
             commands::issue_for_sni,
             commands::start_proxy,
             commands::stop_proxy,
+            commands::get_proxy_status,
             commands::pick_save_path,
         ])
         .setup(|_app| {
