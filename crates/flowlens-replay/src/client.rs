@@ -154,19 +154,14 @@ mod tests {
         let url = format!("http://{}/echo", addr);
 
         let handle = tokio::spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((mut socket, _)) => {
-                        let mut buf = [0; 1024];
-                        if let Ok(n) = socket.read(&mut buf).await {
-                            // Echo back the request
-                            let _ = socket.write_all(&buf[..n]).await;
-                            // Send a minimal HTTP response
-                            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
-                            let _ = socket.write_all(response).await;
-                        }
-                    }
-                    Err(_) => break,
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0; 1024];
+                if let Ok(n) = socket.read(&mut buf).await {
+                    // Echo back the request
+                    let _ = socket.write_all(&buf[..n]).await;
+                    // Send a minimal HTTP response
+                    let response = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+                    let _ = socket.write_all(response).await;
                 }
             }
         });
