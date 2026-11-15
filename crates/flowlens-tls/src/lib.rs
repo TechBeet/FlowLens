@@ -283,14 +283,15 @@ fn uninstall_ca_windows(_pem: &str) -> Result<(), TlsError> {
     Ok(())
 }
 
-impl Default for InMemoryTlsEngine {
-    fn default() -> Self {
-        Self::new()
-    }
 #[cfg(not(windows))]
 fn check_installed_windows(_cn: &str) -> bool {
     false
 }
+
+impl Default for InMemoryTlsEngine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CaManager for InMemoryTlsEngine {
