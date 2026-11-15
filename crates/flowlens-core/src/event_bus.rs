@@ -85,15 +85,28 @@ impl BroadcastEventBus {
     }
 
     /// Get latest events snapshot (for --events reporting)
+    ///
+    /// Poison-tolerant: a panicking publisher thread leaves the `recent` mutex
+    /// poisoned, but the `Vec<TrafficRow>` it guards is still valid data, so we
+    /// recover the guard via `into_inner()` rather than propagating the panic.
     pub fn get_latest_events(&self, limit: usize) -> Vec<TrafficRow> {
-        let guard = self.recent.lock().unwrap();
+        let guard = self
+            .recent
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let start = guard.len().saturating_sub(limit);
         guard[start..].to_vec()
     }
 
     /// Get current filter subscriptions (for --filters reporting)
+    ///
+    /// Poison-tolerant: same reasoning as `get_latest_events` - the guarded
+    /// `Vec<TrafficFilter>` remains valid after a panic, so recover the guard.
     pub fn get_filters(&self) -> Vec<TrafficFilter> {
-        let guard = self.filters.lock().unwrap();
+        let guard = self
+            .filters
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.clone()
     }
 }
@@ -115,11 +128,15 @@ impl EventBus for BroadcastEventBus {
         self.evt_cnt
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if let Some(r) = row {
-            if let Ok(mut guard) = self.recent.lock() {
-                guard.push(r);
-                while guard.len() > 500 {
-                    guard.remove(0);
-                }
+            // Poison-tolerant: a panicking publisher must not stop diagnostics.
+            // The `Vec<TrafficRow>` is still valid, so recover the guard.
+            let mut guard = self
+                .recent
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.push(r);
+            while guard.len() > 500 {
+                guard.remove(0);
             }
         }
         
@@ -148,9 +165,11 @@ impl EventBus for BroadcastEventBus {
         let start = std::time::Instant::now();
         
         // Register the filter for --filters reporting.
-        if let Ok(mut f) = self.filters.lock() {
-            f.push(filter);
-        }
+        // Poison-tolerant: recover the guard so filter bookkeeping survives.
+        self.filters
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(filter);
         let rx = self.sender.subscribe();
         let elapsed = start.elapsed();
         tracing::debug!(
@@ -284,5 +303,42 @@ mod tests {
         }
         let events = bus.latest_events(3);
         assert_eq!(events.len(), 3);
+    }
+
+    /// Regression test: a thread panicking while holding the `recent` lock must
+    /// not poison the bus forever. `latest_events` recovers via `into_inner()`
+    /// and `publish` keeps recording events afterwards.
+    #[test]
+    fn test_bus_recovers_after_poisoned_lock() {
+        let bus = BroadcastEventBus::new(16);
+        let _rx = bus.subscribe(TrafficFilter::default());
+
+        let ev = TrafficEvent::CaptureDropped {
+            reason: "seed".to_string(),
+            count: 1,
+        };
+        bus.publish(ev.clone()).unwrap();
+        assert_eq!(bus.latest_events(10).len(), 1);
+
+        // Poison the `recent` mutex by panicking while holding its guard in
+        // another thread.
+        let recent = bus.recent.clone();
+        let handle = std::thread::spawn(move || {
+            let _guard = recent.lock().unwrap();
+            panic!("boom while holding the recent lock");
+        });
+        assert!(handle.join().is_err());
+        assert!(bus.recent.is_poisoned());
+
+        // Diagnostics still read the valid snapshot instead of panicking.
+        assert_eq!(bus.latest_events(10).len(), 1);
+        assert_eq!(bus.event_count(), 1);
+
+        // Publishing continues to function through the recovered lock.
+        bus.publish(ev.clone()).unwrap();
+        assert_eq!(bus.latest_events(10).len(), 2);
+
+        // Filters lock is recovered the same way.
+        assert_eq!(bus.get_filters().len(), 1);
     }
 }
