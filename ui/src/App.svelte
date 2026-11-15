@@ -1,18 +1,81 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import * as api from "./lib/api";
   import type { TrafficEvent, TrafficStats } from "./lib/types";
   import Header from "./components/Header.svelte";
   import Sidebar from "./components/Sidebar.svelte";
-  import RightPanel from "./components/RightPanel.svelte";
+  import DetailPanel from "./components/DetailPanel.svelte";
+  import ReplayHistory from "./components/ReplayHistory.svelte";
   import TrafficTable from "./components/TrafficTable.svelte";
+  import SniDomainSelector from "./components/SniDomainSelector.svelte";
+
+  export interface ReplayEntry {
+    id: number;
+    sessionId: number;
+    delayMs: number;
+    headers: Record<string, string>;
+    status: "success" | "error";
+    result?: unknown;
+    error?: string;
+    time: string;
+    label?: string;
+  }
 
   // State management
   let running = $state(false);
   let events = $state<TrafficEvent[]>([]);
+  let replayHistory = $state<ReplayEntry[]>([]);
   let selectedEvent = $state<TrafficEvent | null>(null);
   let stats = $state<TrafficStats>({ connections: 0, http: 0, tls: 0, sse: 0, websocket: 0, total: 0 });
+
+  async function handleReplay(sessionId: number, delayMs: number, headers: Record<string, string>) {
+    try {
+      const result = await api.replayRequestWithDelay(sessionId, delayMs, headers);
+      replayHistory = [
+        {
+          id: Date.now(),
+          sessionId,
+          delayMs,
+          headers,
+          status: "success",
+          result,
+          time: new Date().toLocaleTimeString(),
+          label: `成功重放 #${sessionId}`,
+        },
+        ...replayHistory.slice(0, 49),
+      ];
+      addLog(`重放会话 #${sessionId} 成功`);
+    } catch (e) {
+      replayHistory = [
+        {
+          id: Date.now(),
+          sessionId,
+          delayMs,
+          headers,
+          status: "error",
+          error: String(e),
+          time: new Date().toLocaleTimeString(),
+          label: `失败重放 #${sessionId}`,
+        },
+        ...replayHistory.slice(0, 49),
+      ];
+      addLog(`重放会话 #${sessionId} 失败：${e}`);
+    }
+  }
+
+  async function handleBatchReplay(sessionIds: number[], delayMs: number) {
+    for (const sid of sessionIds) {
+      // Use empty headers for batch replay as per current implementation constraints
+      await handleReplay(sid, delayMs, {});
+    }
+  }
+
+  function clearReplayHistory() {
+    replayHistory = [];
+    addLog("已清空重放历史");
+  }
+
   let currentTheme = $state<"dark" | "light">("dark");
   let isLoading = $state(false);
   let error = $state<string | null>(null);
@@ -25,8 +88,10 @@
 
   // Initialize theme
   onMount(() => {
-    currentTheme = api.loadTheme();
-    api.applyTheme(currentTheme);
+    api.loadTheme().then((t) => {
+      currentTheme = t;
+      api.applyTheme(t);
+    });
   });
 
   // Load devices
@@ -87,13 +152,16 @@
   // Export HAR
   async function exportHAR() {
     try {
-      const path = window.prompt("请输入导出路�?(例如: C:\\\\output.har):");
-      if (path) {
-        await api.exportHAR(path);
-        addLog(`已导�?HAR: ${path}`);
-      }
+      const path = window.prompt("请输入导出文件路径 (例如: trace.har):", "trace.har");
+      if (!path) return;
+      await api.exportHAR(path, {
+        include_headers: true,
+        include_bodies: true,
+        include_timing: true,
+      });
+      addLog(`已导出 HAR: ${path}`);
     } catch (e) {
-      addLog(`导出 HAR 失败�?{e}`);
+      addLog(`导出 HAR 失败：${e}`);
     }
   }
 
@@ -215,6 +283,9 @@
   />
 
   <div class="toolbar">
+    <div class="domain-controls">
+      <SniDomainSelector />
+    </div>
     <label class="toolbar-label">
       设备�?
       <select bind:value={selectedDevice} class="device-select">
@@ -241,8 +312,13 @@
     <TrafficTable
       bind:events
       bind:selectedEvent
+      onreplay={(sid) => handleReplay(sid, 0, {})}
+      onbatchreplay={handleBatchReplay}
     />
-    <RightPanel event={selectedEvent} />
+    <div class="right-column">
+      <DetailPanel event={selectedEvent} onreplay={handleReplay} />
+      <ReplayHistory entries={replayHistory} onclear={clearReplayHistory} />
+    </div>
   </div>
 
   <SettingsView
@@ -363,212 +439,8 @@
   .status-stopped { color: var(--fg-dim); }
   .status-hint { opacity: 0.7; }
 
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    backdrop-filter: blur(2px);
-  }
-
-  .modal-content {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    width: 90%;
-    max-width: 600px;
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-  }
-
-  .modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .modal-header h2 {
-    margin: 0;
-    font-size: 18px;
-    color: var(--fg);
-  }
-
-  .close-btn {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    background: transparent;
-    border: none;
-    color: var(--fg-dim);
-    font-size: 18px;
-    cursor: pointer;
-    border-radius: 4px;
-  }
-
-  .close-btn:hover {
-    background: var(--hover);
-    color: var(--fg);
-  }
-
-  .modal-tabs {
-    display: flex;
-    padding: 0 20px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .tab-btn {
-    padding: 10px 16px;
-    background: transparent;
-    border: none;
-    color: var(--fg-dim);
-    font-size: 13px;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all 0.15s;
-  }
-
-  .tab-btn:hover {
-    color: var(--fg);
-  }
-
-  .tab-btn.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-  }
-
-  .modal-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px;
-  }
-
-  .settings-group {
-    margin-bottom: 24px;
-  }
-
-  .settings-group h3 {
-    margin: 0 0 12px 0;
-    font-size: 14px;
-    color: var(--fg);
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 6px;
-  }
-
-  .setting-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 0;
-    gap: 12px;
-  }
-
-  .setting-row label {
-    color: var(--fg);
-    font-size: 13px;
-  }
-
-  .setting-select,
-  .setting-input {
-    padding: 6px 10px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--fg);
-    font-size: 13px;
-    min-width: 120px;
-  }
-
-  .shortcuts-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .shortcut-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-  }
-
-  .shortcut-key {
-    font-family: "Consolas", "Monaco", monospace;
-    font-size: 12px;
-    color: var(--accent);
-    background: var(--bg);
-    padding: 2px 8px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-  }
-
-  .shortcut-desc {
-    color: var(--fg-dim);
-    font-size: 13px;
-  }
-
-  .about-section {
-    text-align: center;
-    padding: 20px;
-  }
-
-  .about-section h3 {
-    margin: 0 0 8px 0;
-    font-size: 20px;
-    color: var(--accent);
-  }
-
-  .about-section p {
-    margin: 4px 0;
-    color: var(--fg-dim);
-    font-size: 13px;
-  }
-
-  .license {
-    margin-top: 12px !important;
-    font-size: 11px !important;
-    color: var(--fg-dim) !important;
-  }
-
-  .modal-footer {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-    padding: 16px 20px;
-    border-top: 1px solid var(--border);
-  }
-
-  .btn {
-    padding: 6px 16px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--fg);
-    font-size: 13px;
-    cursor: pointer;
-  }
-
   .btn:hover {
     background: var(--hover);
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: var(--accent-fg);
-    border-color: var(--accent);
-  }
-
-  .btn-primary:hover {
-    filter: brightness(1.1);
   }
 
   .status-error {
