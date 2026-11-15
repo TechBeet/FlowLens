@@ -1,5 +1,6 @@
 mod commands;
 mod state;
+mod proxy;
 
 use flowlens_core::BroadcastEventBus;
 
@@ -44,6 +45,17 @@ pub fn run() {
             commands::aggregate_by_host,
             commands::get_session_list,
             commands::delete_session,
+            commands::read_theme,
+            commands::write_theme,
+            commands::set_event_max,
+            commands::get_event_max,
+            commands::list_decrypt_domains,
+            commands::add_decrypt_domain,
+            commands::remove_decrypt_domain,
+            commands::toggle_decrypt_domain,
+            commands::issue_for_sni,
+            commands::start_proxy,
+            commands::stop_proxy,
         ])
         .setup(|_app| {
             Ok(())
