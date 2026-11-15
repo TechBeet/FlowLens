@@ -3,8 +3,6 @@ name = "flowlens-tauri"
 version = "0.1.0"
 edition = "2021"
 
-[workspace]
-
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -19,6 +17,7 @@ flowlens-tls = { path = "../../crates/flowlens-tls" }
 flowlens-replay = { path = "../../crates/flowlens-replay" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"] }
 tracing = "0.1"
+tauri-plugin-dialog = "2"
 chrono = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 qrcode = { version = "0.14", features = ["image"] }
