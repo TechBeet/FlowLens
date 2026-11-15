@@ -1,7 +1,7 @@
 ﻿//! Integration tests for FlowLens MITM TLS engine.
 
 use flowlens_tls::{CaManager, CertIssuer, InMemoryTlsEngine, MitmProxy};
-use flowlens_core::models::{ConnectionKey, TlsVersion, TransportProtocol};
+use flowlens_core::models::{ConnectionKey, TransportProtocol};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
