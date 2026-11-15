@@ -6,7 +6,7 @@ use flowlens_core::BroadcastEventBus;
 use flowlens_core::TrafficEvent;
 use flowlens_core::InterceptEngine;
 use flowlens_core::RewriteEngine;
-use flowlens_tls::{CaInfo, CaManager, InMemoryTlsEngine};
+use flowlens_tls::{CaInfo, CaManager, DomainPolicy, InMemoryTlsEngine};
 
 pub struct AppState {
     pub event_bus: Arc<BroadcastEventBus>,
@@ -14,9 +14,11 @@ pub struct AppState {
     pub events: Arc<Mutex<Vec<TrafficEvent>>>,
     pub running: Arc<AtomicBool>,
     pub pump_task: Mutex<Option<JoinHandle<()>>>,
+    pub proxy_task: Mutex<Option<JoinHandle<()>>>,
     pub intercept: Arc<InterceptEngine>,
     pub rewrite_engine: Mutex<RewriteEngine>,
     pub ca_manager: Arc<Mutex<InMemoryTlsEngine>>,
+    pub decrypt_policy: Arc<Mutex<DomainPolicy>>,
     pub ca_info: Arc<Mutex<Option<CaInfo>>>,
 }
 
@@ -31,9 +33,11 @@ impl AppState {
             events: Arc::new(Mutex::new(Vec::new())),
             running: Arc::new(AtomicBool::new(false)),
             pump_task: Mutex::new(None),
+            proxy_task: Mutex::new(None),
             intercept: Arc::new(InterceptEngine::new()),
             rewrite_engine: Mutex::new(RewriteEngine::new()),
             ca_manager: Arc::new(Mutex::new(ca_engine)),
+            decrypt_policy: Arc::new(Mutex::new(DomainPolicy::new())),
             ca_info: Arc::new(Mutex::new(ca)),
         }
     }
