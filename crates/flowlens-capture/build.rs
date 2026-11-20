@@ -15,8 +15,8 @@ fn main() {
         return;
     }
 
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR is always set by cargo");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is always set by cargo");
     let wpdlib = std::path::Path::new(&manifest_dir).join("../../wpdlib");
 
     if wpdlib.join("wpcap.lib").exists() {
