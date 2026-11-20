@@ -100,7 +100,8 @@ pub fn build_server_config(cert_pem: &str, key_pem: &str) -> Result<ServerConfig
     let mut key_reader = Cursor::new(key_pem);
     let mut keys = Vec::new();
     for item in rustls_pemfile::pkcs8_private_keys(&mut key_reader) {
-        let key = item.map_err(|_| TlsError::CertGeneration("failed to parse private key".into()))?;
+        let key =
+            item.map_err(|_| TlsError::CertGeneration("failed to parse private key".into()))?;
         keys.push(key);
     }
     if keys.is_empty() {
@@ -299,11 +300,8 @@ where
 /// When decryption is disabled for the SNI host the raw stream is relayed
 /// untouched and a log line is emitted. When enabled, TLS is terminated using
 /// `server_config_for_sni(sni)` so a per-host leaf certificate is presented.
-pub async fn handle_mitm_connection<E, P>(
-    engine: &E,
-    policy: &P,
-    stream: tokio::net::TcpStream,
-) where
+pub async fn handle_mitm_connection<E, P>(engine: &E, policy: &P, stream: tokio::net::TcpStream)
+where
     E: crate::MitmProxy + Sync,
     P: crate::policy::DomainPolicyAccess + Sync,
 {
