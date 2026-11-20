@@ -1,4 +1,4 @@
-﻿//! Phase C: Breakpoint / Interception architecture.
+//! Phase C: Breakpoint / Interception architecture.
 
 use crate::models::{HttpRequest, HttpResponse, SessionId};
 use serde::{Deserialize, Serialize};
@@ -55,7 +55,9 @@ pub struct InterceptEngine {
 }
 
 impl Default for InterceptEngine {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InterceptEngine {
@@ -85,24 +87,52 @@ impl InterceptEngine {
 }
 
 impl InterceptEngine {
-    pub async fn pause(&self, session_id: SessionId, rule_id: Option<String>, request: Option<HttpRequest>, response: Option<HttpResponse>) -> Result<PausePoint, InterceptError> {
+    pub async fn pause(
+        &self,
+        session_id: SessionId,
+        rule_id: Option<String>,
+        request: Option<HttpRequest>,
+        response: Option<HttpResponse>,
+    ) -> Result<PausePoint, InterceptError> {
         let mut guard = self.pause_points.lock().await;
-        if guard.contains_key(&session_id) { return Err(InterceptError::AlreadyPaused(session_id)); }
-        let pp = PausePoint { session_id, timestamp: time_now(), rule_id, request, response, state: InterceptState::Paused };
+        if guard.contains_key(&session_id) {
+            return Err(InterceptError::AlreadyPaused(session_id));
+        }
+        let pp = PausePoint {
+            session_id,
+            timestamp: time_now(),
+            rule_id,
+            request,
+            response,
+            state: InterceptState::Paused,
+        };
         guard.insert(session_id, pp.clone());
         Ok(pp)
     }
 
     pub async fn release(&self, session_id: SessionId) -> Result<PausePoint, InterceptError> {
         let mut guard = self.pause_points.lock().await;
-        guard.remove(&session_id).ok_or(InterceptError::NotPaused(session_id))
+        guard
+            .remove(&session_id)
+            .ok_or(InterceptError::NotPaused(session_id))
     }
 
-    pub async fn modify(&self, session_id: SessionId, new_request: Option<HttpRequest>, new_response: Option<HttpResponse>) -> Result<PausePoint, InterceptError> {
+    pub async fn modify(
+        &self,
+        session_id: SessionId,
+        new_request: Option<HttpRequest>,
+        new_response: Option<HttpResponse>,
+    ) -> Result<PausePoint, InterceptError> {
         let mut guard = self.pause_points.lock().await;
-        let pp = guard.get_mut(&session_id).ok_or(InterceptError::NotPaused(session_id))?;
-        if let Some(req) = new_request { pp.request = Some(req); }
-        if let Some(resp) = new_response { pp.response = Some(resp); }
+        let pp = guard
+            .get_mut(&session_id)
+            .ok_or(InterceptError::NotPaused(session_id))?;
+        if let Some(req) = new_request {
+            pp.request = Some(req);
+        }
+        if let Some(resp) = new_response {
+            pp.response = Some(resp);
+        }
         pp.state = InterceptState::Modified;
         Ok(pp.clone())
     }
@@ -112,7 +142,11 @@ impl InterceptEngine {
         guard.contains_key(&session_id)
     }
 
-    pub async fn auto_release_paused(&self, session_id: SessionId, _timeout_ms: u64) -> Result<(), InterceptError> {
+    pub async fn auto_release_paused(
+        &self,
+        session_id: SessionId,
+        _timeout_ms: u64,
+    ) -> Result<(), InterceptError> {
         let _ = self.release(session_id).await;
         Ok(())
     }
@@ -139,47 +173,84 @@ impl InterceptEngine {
 
     /// Return true when the event matches the breakpoint rule.
     #[allow(dead_code)] // shared helper, used by rule_matches tests and future interceptors
-    fn rule_matches(rule: &BreakpointRule, request: Option<&HttpRequest>, response: Option<&HttpResponse>) -> bool {
+    fn rule_matches(
+        rule: &BreakpointRule,
+        request: Option<&HttpRequest>,
+        response: Option<&HttpResponse>,
+    ) -> bool {
         if let Some(ref method) = rule.method {
             let req_method = request.map(|r| r.method.as_str()).unwrap_or("");
-            if !req_method.eq_ignore_ascii_case(method) { return false; }
+            if !req_method.eq_ignore_ascii_case(method) {
+                return false;
+            }
         }
         if let Some(ref pattern) = rule.url_regex {
             let url = request.map(|r| r.url.as_str()).unwrap_or("");
             if let Ok(re) = regex_lite::Regex::new(pattern) {
-                if !re.is_match(url) { return false; }
-            } else { return false; }
+                if !re.is_match(url) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
         }
         if let Some(status) = rule.status_code {
             let resp_status = response.map(|r| r.status_code).unwrap_or(0);
-            if resp_status != status { return false; }
+            if resp_status != status {
+                return false;
+            }
         }
         if let Some((ref key, ref value)) = rule.header {
             let mut headers: Vec<&(String, String)> = Vec::new();
-            if let Some(r) = request { headers.extend(r.headers.iter()); }
-            if let Some(r) = response { headers.extend(r.headers.iter()); }
-            let hm = headers.iter().any(|(k, v)| k.eq_ignore_ascii_case(key) && v == value);
-            if !hm { return false; }
+            if let Some(r) = request {
+                headers.extend(r.headers.iter());
+            }
+            if let Some(r) = response {
+                headers.extend(r.headers.iter());
+            }
+            let hm = headers
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(key) && v == value);
+            if !hm {
+                return false;
+            }
         }
         if let Some(ref needle) = rule.body_contains {
-            let body_found = request.and_then(|r| r.body.as_deref()).map(|b| contains_slice(b, needle)).unwrap_or(false)
-                || response.and_then(|r| r.body.as_deref()).map(|b| contains_slice(b, needle)).unwrap_or(false);
-            if !body_found { return false; }
+            let body_found = request
+                .and_then(|r| r.body.as_deref())
+                .map(|b| contains_slice(b, needle))
+                .unwrap_or(false)
+                || response
+                    .and_then(|r| r.body.as_deref())
+                    .map(|b| contains_slice(b, needle))
+                    .unwrap_or(false);
+            if !body_found {
+                return false;
+            }
         }
         true
     }
 }
 
 fn time_now() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros() as i64)
+        .unwrap_or(0)
 }
 
 #[allow(dead_code)] // shared helper, used by rule_matches tests and future interceptors
 fn contains_slice(haystack: &[u8], needle: &[u8]) -> bool {
-    if needle.is_empty() { return true; }
-    if haystack.len() < needle.len() { return false; }
+    if needle.is_empty() {
+        return true;
+    }
+    if haystack.len() < needle.len() {
+        return false;
+    }
     for i in 0..=(haystack.len() - needle.len()) {
-        if haystack[i..i + needle.len()] == *needle { return true; }
+        if haystack[i..i + needle.len()] == *needle {
+            return true;
+        }
     }
     false
 }
@@ -190,19 +261,41 @@ mod tests {
     use crate::models::HttpVersion;
 
     fn make_request(method: &str, url: &str, body: Option<&[u8]>) -> HttpRequest {
-        HttpRequest { method: method.to_string(), url: url.to_string(), path: url.to_string(), request_line_version: HttpVersion::Http11, headers: vec![], body: body.map(|b| b.to_vec()), body_size: body.map(|b| b.len()).unwrap_or(0), timestamp: 0 }
+        HttpRequest {
+            method: method.to_string(),
+            url: url.to_string(),
+            path: url.to_string(),
+            request_line_version: HttpVersion::Http11,
+            headers: vec![],
+            body: body.map(|b| b.to_vec()),
+            body_size: body.map(|b| b.len()).unwrap_or(0),
+            timestamp: 0,
+        }
     }
 
     fn make_response(status: u16, body: Option<&[u8]>) -> HttpResponse {
-        HttpResponse { status_code: status, status_text: "OK".to_string(), version: HttpVersion::Http11, headers: vec![], body: body.map(|b| b.to_vec()), body_size: body.map(|b| b.len()).unwrap_or(0), timestamp: 0 }
+        HttpResponse {
+            status_code: status,
+            status_text: "OK".to_string(),
+            version: HttpVersion::Http11,
+            headers: vec![],
+            body: body.map(|b| b.to_vec()),
+            body_size: body.map(|b| b.len()).unwrap_or(0),
+            timestamp: 0,
+        }
     }
 
     #[test]
     fn rule_matches_method_and_url() {
         let rule = BreakpointRule {
-            id: "r1".to_string(), name: "r1".to_string(), enabled: true,
-            method: Some("GET".to_string()), url_regex: Some("example\\.com".to_string()),
-            status_code: None, header: None, body_contains: None,
+            id: "r1".to_string(),
+            name: "r1".to_string(),
+            enabled: true,
+            method: Some("GET".to_string()),
+            url_regex: Some("example\\.com".to_string()),
+            status_code: None,
+            header: None,
+            body_contains: None,
         };
         let req = make_request("GET", "http://example.com/x", None);
         assert!(InterceptEngine::rule_matches(&rule, Some(&req), None));
@@ -271,7 +364,15 @@ mod tests {
         let engine = InterceptEngine::new();
         let sid = SessionId(1);
         assert!(!engine.is_paused(sid).await);
-        let pp = engine.pause(sid, Some("rule-1".to_string()), Some(make_request("GET", "http://example.com", None)), None).await.unwrap();
+        let pp = engine
+            .pause(
+                sid,
+                Some("rule-1".to_string()),
+                Some(make_request("GET", "http://example.com", None)),
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(pp.state, InterceptState::Paused);
         assert!(engine.is_paused(sid).await);
         let err = engine.pause(sid, None, None, None).await.unwrap_err();
@@ -287,9 +388,20 @@ mod tests {
     async fn test_engine_modify() {
         let engine = InterceptEngine::new();
         let sid = SessionId(2);
-        engine.pause(sid, None, Some(make_request("GET", "http://example.com", None)), None).await.unwrap();
+        engine
+            .pause(
+                sid,
+                None,
+                Some(make_request("GET", "http://example.com", None)),
+                None,
+            )
+            .await
+            .unwrap();
         let modified_req = make_request("POST", "http://modified.com", Some(b"new body"));
-        let pp = engine.modify(sid, Some(modified_req.clone()), None).await.unwrap();
+        let pp = engine
+            .modify(sid, Some(modified_req.clone()), None)
+            .await
+            .unwrap();
         assert_eq!(pp.state, InterceptState::Modified);
         assert_eq!(pp.request.as_ref().unwrap().method, "POST");
         assert_eq!(pp.request.as_ref().unwrap().url, "http://modified.com");
