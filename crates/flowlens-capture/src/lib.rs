@@ -3,11 +3,20 @@
 //! Provides:
 //! - Real Npcap capture via the `pcap` crate (Phase 1+), falling back to mock
 //! - MockEngine for tests / systems without Npcap
+//! - Real WinDivert network layer capture (Phase 2+), falling back to mock
 //! - RawPacket abstraction and packet parsing helpers
 
 pub mod pcap;
+#[cfg(feature = "windivert")]
+pub mod redirect;
+#[cfg(feature = "windivert")]
+pub mod windivert;
 
 pub use pcap::{LinkType, PacketDirection, PcapEngine, RawPacket};
+#[cfg(feature = "windivert")]
+pub use redirect::{spawn_redirect, RedirectEngine};
+#[cfg(feature = "windivert")]
+pub use windivert::{create_all_ip_engine, create_https_engine, WinDivertEngine};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -331,11 +340,11 @@ pub fn spawn_mock_producer(bus: Arc<dyn EventBus>) {
 
     std::thread::spawn(move || {
         let mut n: u64 = 0;
-    let session_mgr = flowlens_core::session::InMemorySessionManager::new();
+        let session_mgr = flowlens_core::session::InMemorySessionManager::new();
         let sleep = std::time::Duration::from_millis(80);
         let max_no_subscriber_secs: u64 = 30;
         let check_interval = std::time::Duration::from_millis(50);
-        
+
         tracing::info!("Mock producer started, publishing every 80ms");
 
         // Track time since last subscriber for potential timeout exit
@@ -359,12 +368,12 @@ pub fn spawn_mock_producer(bus: Arc<dyn EventBus>) {
                         break;
                     }
                 }
-                
+
                 // Wait before retry
                 std::thread::sleep(check_interval);
                 continue;
             }
-            
+
             // Reset timeout timer since we have a subscriber
             no_subscriber_since = None;
 
@@ -403,7 +412,10 @@ fn event_type_label(ev: &TrafficEvent) -> &'static str {
     }
 }
 
-fn generate_event(n: u64, session_mgr: &dyn flowlens_core::session::SessionManager) -> TrafficEvent {
+fn generate_event(
+    n: u64,
+    session_mgr: &dyn flowlens_core::session::SessionManager,
+) -> TrafficEvent {
     use flowlens_core::models::*;
     let ts = flowlens_core::models::now_micros();
     let conn = ConnectionKey {
