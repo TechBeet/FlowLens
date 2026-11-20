@@ -11,6 +11,6 @@ pub mod errors;
 pub mod fuzzer;
 
 pub use client::ReplayClient;
-pub use diff::{diff_sessions, DiffResult, RequestDiff, DiffKind};
+pub use diff::{diff_sessions, DiffKind, DiffResult, RequestDiff};
 pub use errors::ReplayError;
 pub use fuzzer::{fuzz_param, FuzzCase, FuzzParam, FuzzResult};
