@@ -6,8 +6,8 @@
 //! - WebSocket frame parser
 //! - SSE event parser
 
-pub mod http2;
 pub mod grpc;
+pub mod http2;
 
 use std::collections::HashMap;
 
