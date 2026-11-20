@@ -14,3 +14,4 @@ export {
   type SortKey,
   type SortDir,
 } from "./useFilter";
+export { useRewriteRules, type RewriteRulesState } from "./useRewriteRules";
