@@ -22,4 +22,3 @@ pub enum ReplayError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
-
