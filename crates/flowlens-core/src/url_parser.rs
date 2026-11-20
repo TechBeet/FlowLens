@@ -4,7 +4,9 @@
 /// Returns (host, path, optional_port)
 pub fn parse_url(url: &str) -> Option<(String, String, Option<u16>)> {
     let url = url.trim();
-    if url.is_empty() { return None; }
+    if url.is_empty() {
+        return None;
+    }
 
     // Only try url::Url if there's a scheme
     if url.contains("://") {
@@ -12,15 +14,18 @@ pub fn parse_url(url: &str) -> Option<(String, String, Option<u16>)> {
             let mut host = parsed.host()?.to_string();
             // Strip brackets from IPv6 addresses
             if host.starts_with('[') && host.ends_with(']') {
-                host = host[1..host.len()-1].to_string();
+                host = host[1..host.len() - 1].to_string();
             }
             let path = parsed.path().to_string();
             let port = parsed.port();
             // For root path "/", use empty string only if the original had no explicit slash
             let after_scheme = &url[url.find("://").map(|i| i + 3).unwrap_or(0)..];
             let has_explicit_path = after_scheme.contains('/');
-            let path = if path == "/" && !has_explicit_path
-                && parsed.query().is_none() && parsed.fragment().is_none() {
+            let path = if path == "/"
+                && !has_explicit_path
+                && parsed.query().is_none()
+                && parsed.fragment().is_none()
+            {
                 String::new()
             } else {
                 path
@@ -111,37 +116,55 @@ mod tests {
     #[test]
     fn test_parse_full_https_url() {
         let result = parse_url("https://api.github.com/v4/users");
-        assert_eq!(result, Some(("api.github.com".to_string(), "/v4/users".to_string(), None)));
+        assert_eq!(
+            result,
+            Some(("api.github.com".to_string(), "/v4/users".to_string(), None))
+        );
     }
 
     #[test]
     fn test_parse_url_with_port() {
         let result = parse_url("http://localhost:8080/api/test");
-        assert_eq!(result, Some(("localhost".to_string(), "/api/test".to_string(), Some(8080))));
+        assert_eq!(
+            result,
+            Some(("localhost".to_string(), "/api/test".to_string(), Some(8080)))
+        );
     }
 
     #[test]
     fn test_parse_url_ipv4_with_port() {
         let result = parse_url("http://192.168.1.1:3000/health");
-        assert_eq!(result, Some(("192.168.1.1".to_string(), "/health".to_string(), Some(3000))));
+        assert_eq!(
+            result,
+            Some(("192.168.1.1".to_string(), "/health".to_string(), Some(3000)))
+        );
     }
 
     #[test]
     fn test_parse_url_ipv6() {
         let result = parse_url("http://[::1]:8080/test");
-        assert_eq!(result, Some(("::1".to_string(), "/test".to_string(), Some(8080))));
+        assert_eq!(
+            result,
+            Some(("::1".to_string(), "/test".to_string(), Some(8080)))
+        );
     }
 
     #[test]
     fn test_parse_url_no_path() {
         let result = parse_url("https://example.com");
-        assert_eq!(result, Some(("example.com".to_string(), "".to_string(), None)));
+        assert_eq!(
+            result,
+            Some(("example.com".to_string(), "".to_string(), None))
+        );
     }
 
     #[test]
     fn test_parse_url_root_path() {
         let result = parse_url("https://example.com/");
-        assert_eq!(result, Some(("example.com".to_string(), "/".to_string(), None)));
+        assert_eq!(
+            result,
+            Some(("example.com".to_string(), "/".to_string(), None))
+        );
     }
 
     #[test]
@@ -153,13 +176,19 @@ mod tests {
     #[test]
     fn test_parse_url_only_host_port() {
         let result = parse_url("example.com:9000");
-        assert_eq!(result, Some(("example.com".to_string(), "".to_string(), Some(9000))));
+        assert_eq!(
+            result,
+            Some(("example.com".to_string(), "".to_string(), Some(9000)))
+        );
     }
 
     #[test]
     fn test_parse_url_without_scheme_and_path() {
         let result = parse_url("api.example.com/v1/data");
-        assert_eq!(result, Some(("api.example.com".to_string(), "/v1/data".to_string(), None)));
+        assert_eq!(
+            result,
+            Some(("api.example.com".to_string(), "/v1/data".to_string(), None))
+        );
     }
 
     #[test]
@@ -176,7 +205,10 @@ mod tests {
 
     #[test]
     fn test_truncate_url_needs_truncation() {
-        let result = truncate_url("https://very-long-domain-name-with-lots-of-characters.com/path", 20);
+        let result = truncate_url(
+            "https://very-long-domain-name-with-lots-of-characters.com/path",
+            20,
+        );
         assert_eq!(result.len(), 20);
         assert!(result.ends_with("..."));
         assert_eq!(result, "very-long-domain-...");
@@ -204,6 +236,13 @@ mod tests {
     #[test]
     fn test_parse_url_special_characters_in_path() {
         let result = parse_url("https://api.example.com/v1/search?q=test&limit=10");
-        assert_eq!(result, Some(("api.example.com".to_string(), "/v1/search?q=test&limit=10".to_string(), None)));
+        assert_eq!(
+            result,
+            Some((
+                "api.example.com".to_string(),
+                "/v1/search?q=test&limit=10".to_string(),
+                None
+            ))
+        );
     }
 }
