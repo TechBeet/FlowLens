@@ -1,4 +1,4 @@
-﻿//! MCP tool definitions for FlowLens
+//! MCP tool definitions for FlowLens
 //!
 //! This module provides tool implementations for querying and analyzing
 //! captured network traffic data.
@@ -15,13 +15,13 @@ use flowlens_storage::StorageEngine;
 pub trait McpTool: Send + Sync {
     /// Tool name (used in method calls)
     fn name(&self) -> &str;
-    
+
     /// Tool description
     fn description(&self) -> &str;
-    
+
     /// Input schema for the tool (JSON Schema format)
     fn input_schema(&self) -> serde_json::Value;
-    
+
     /// Invoke the tool with arguments
     async fn invoke(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value>;
 }
@@ -107,10 +107,11 @@ impl McpTool for GetSessionTool {
     }
 
     async fn invoke(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
-        let id: u64 = args.get("session_id").and_then(|v| v.as_u64()).ok_or_else(|| {
-            anyhow::anyhow!("Missing required parameter: session_id")
-        })?;
-        
+        let id: u64 = args
+            .get("session_id")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: session_id"))?;
+
         let session = self.storage.get_session(SessionId(id))?;
         match session {
             Some(s) => Ok(serde_json::json!({ "session": s })),
@@ -151,7 +152,7 @@ impl McpTool for AggregateByHostTool {
     async fn invoke(&self, _args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         let sessions = self.storage.list_sessions()?;
         let mut host_stats: HashMap<String, HostStats> = HashMap::new();
-        
+
         for session in sessions {
             let host = session.conn.dst_addr.to_string();
             let entry = host_stats.entry(host).or_insert(HostStats {
@@ -163,7 +164,7 @@ impl McpTool for AggregateByHostTool {
             entry.bytes_sent += session.bytes_sent;
             entry.bytes_received += session.bytes_received;
         }
-        
+
         let result: Vec<serde_json::Value> = host_stats
             .into_iter()
             .map(|(host, stats)| {
@@ -176,7 +177,7 @@ impl McpTool for AggregateByHostTool {
                 })
             })
             .collect();
-        
+
         Ok(serde_json::json!({ "aggregations": result }))
     }
 }
@@ -219,7 +220,7 @@ impl McpTool for AggregateByPidTool {
     async fn invoke(&self, _args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         let sessions = self.storage.list_sessions()?;
         let mut pid_stats: HashMap<u32, PidStats> = HashMap::new();
-        
+
         for session in sessions {
             let pid = session.process.pid;
             let entry = pid_stats.entry(pid).or_insert(PidStats {
@@ -232,7 +233,7 @@ impl McpTool for AggregateByPidTool {
             entry.bytes_sent += session.bytes_sent;
             entry.bytes_received += session.bytes_received;
         }
-        
+
         let result: Vec<serde_json::Value> = pid_stats
             .into_iter()
             .map(|(pid, stats)| {
@@ -246,7 +247,7 @@ impl McpTool for AggregateByPidTool {
                 })
             })
             .collect();
-        
+
         Ok(serde_json::json!({ "aggregations": result }))
     }
 }
