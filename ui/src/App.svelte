@@ -133,6 +133,7 @@ import { filterEvents } from "./lib/composables";
   let unlisten: (() => void) | undefined;
   let devices = $state<string[]>([]);
   let selectedDevice = $state<string>("");
+  let captureMode = $state<"pcap" | "windivert">("pcap");
   let caStatus = $state<{ installed: boolean; cn: string | null }>({ installed: false, cn: null });
   let statsInterval: number | undefined;
 
@@ -231,7 +232,7 @@ import { filterEvents } from "./lib/composables";
     try {
       isLoading = true;
       error = null;
-      await api.startCapture();
+      await api.startCapture(captureMode, selectedDevice);
       running = true;
       addLog("开始捕获网络流量");
       // Start polling stats
@@ -363,6 +364,13 @@ import { filterEvents } from "./lib/composables";
         {#each devices as dev}
           <option value={dev}>{dev}</option>
         {/each}
+      </select>
+    </label>
+    <label class="toolbar-label" title="WinDivert 模式无需代理即可解密 HTTPS">
+      模式：
+      <select bind:value={captureMode} class="device-select">
+        <option value="pcap">Npcap（需安装）</option>
+        <option value="windivert">WinDivert（无需代理）</option>
       </select>
     </label>
     <button class="btn" onclick={exportHAR}>导出 HAR</button>
