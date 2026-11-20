@@ -206,4 +206,3 @@ mod tests {
         assert!(!runtime.is_running());
     }
 }
-
