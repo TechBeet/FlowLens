@@ -130,7 +130,9 @@ pub fn normalize_domain(input: &str) -> Result<String, TlsError> {
         return Err(TlsError::NotSupported("domain must not be empty".into()));
     }
     if host.len() > 253 {
-        return Err(TlsError::NotSupported("domain exceeds 253 characters".into()));
+        return Err(TlsError::NotSupported(
+            "domain exceeds 253 characters".into(),
+        ));
     }
 
     let labels: Vec<&str> = host.split('.').collect();
@@ -141,9 +143,7 @@ pub fn normalize_domain(input: &str) -> Result<String, TlsError> {
     }
     for label in labels {
         let valid_len = (1..=63).contains(&label.len());
-        let valid_chars = label
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-');
+        let valid_chars = label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
         let no_edge_dash = !label.starts_with('-') && !label.ends_with('-');
         if !valid_len || !valid_chars || !no_edge_dash {
             return Err(TlsError::NotSupported(format!(
@@ -152,11 +152,7 @@ pub fn normalize_domain(input: &str) -> Result<String, TlsError> {
         }
     }
 
-    Ok(if wildcard {
-        format!("*.{host}")
-    } else {
-        host
-    })
+    Ok(if wildcard { format!("*.{host}") } else { host })
 }
 
 /// Match a concrete hostname against a normalized domain or `*.` wildcard rule.
@@ -204,7 +200,10 @@ mod tests {
 
     #[test]
     fn normalizes_case_whitespace_and_trailing_dot() {
-        assert_eq!(normalize_domain("  API.Example.COM. ").unwrap(), "api.example.com");
+        assert_eq!(
+            normalize_domain("  API.Example.COM. ").unwrap(),
+            "api.example.com"
+        );
         assert_eq!(normalize_domain("*.Example.com").unwrap(), "*.example.com");
     }
 
