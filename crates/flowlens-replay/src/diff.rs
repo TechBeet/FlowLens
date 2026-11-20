@@ -39,7 +39,9 @@ pub struct DiffResult {
     pub total_diffs: usize,
 }
 /// Extract requests from a session
-pub fn extract_requests(events: &[TrafficEvent]) -> HashMap<String, (HttpRequest, Option<HttpResponse>)> {
+pub fn extract_requests(
+    events: &[TrafficEvent],
+) -> HashMap<String, (HttpRequest, Option<HttpResponse>)> {
     let mut map = HashMap::new();
     let mut current_request: Option<(String, HttpRequest)> = None;
 
@@ -122,8 +124,10 @@ pub fn compare_requests(a: &HttpRequest, b: &HttpRequest, _url: &str) -> Vec<Fie
     match (&a.body, &b.body) {
         (Some(a_body), Some(b_body)) => {
             if a_body != b_body {
-                let a_preview = String::from_utf8_lossy(&a_body[..a_body.len().min(100)]).to_string();
-                let b_preview = String::from_utf8_lossy(&b_body[..b_body.len().min(100)]).to_string();
+                let a_preview =
+                    String::from_utf8_lossy(&a_body[..a_body.len().min(100)]).to_string();
+                let b_preview =
+                    String::from_utf8_lossy(&b_body[..b_body.len().min(100)]).to_string();
                 diffs.push(FieldDiff {
                     field: "body".to_string(),
                     kind: DiffKind::Changed {
