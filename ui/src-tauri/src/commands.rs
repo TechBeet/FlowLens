@@ -1,16 +1,16 @@
 use super::state::AppState;
+use flowlens_capture::Engine;
+use flowlens_core::{EventBus, TrafficEvent, TrafficFilter, TrafficRow};
+use flowlens_tls::cert_store;
+use flowlens_tls::CaManager;
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::task::JoinHandle;
-use flowlens_core::{EventBus, TrafficEvent, TrafficFilter, TrafficRow};
-use flowlens_capture::Engine;
-use flowlens_tls::cert_store;
-use flowlens_tls::CaManager;
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 
 /// Flattened view of a raw `TrafficEvent`, matching the shape declared in
 /// `ui/src/lib/types.ts`.
@@ -123,11 +123,23 @@ fn tally(stats: &mut flowlens_core::TrafficStats, event: &TrafficEvent) {
     }
 }
 
+/// Capture mode selected by the user.
+#[derive(Debug, Clone, Copy, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CaptureMode {
+    /// Traditional Npcap capture (requires Npcap installed).
+    #[default]
+    Pcap,
+    /// Transparent WinDivert capture (no proxy required).
+    WinDivert,
+}
+
 #[tauri::command]
 pub async fn start_capture(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     device: Option<String>,
+    #[allow(unused_variables)] mode: Option<CaptureMode>,
 ) -> Result<(), String> {
     if state.running.load(Ordering::SeqCst) {
         return Ok(());
@@ -195,13 +207,61 @@ pub async fn start_capture(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .replace(handle);
 
-    // Start the actual capture engine. Honour an explicitly requested device when
-    // provided, otherwise auto-detect.
+    let bus: Arc<dyn EventBus> = state.event_bus.clone();
+
+    // ── WinDivert mode (transparent, no-proxy) ──────────────────────────
+    #[cfg(feature = "windivert")]
+    if let Some(CaptureMode::WinDivert) = mode {
+        // 1) Start the MITM listener that will terminate TLS.
+        const MITM_PORT: u16 = 18080;
+        let proxy_addr = std::net::SocketAddr::from(([127, 0, 0, 1], MITM_PORT));
+        let runtime = std::sync::Arc::new(crate::proxy::ProxyRuntime::new(&state));
+        let listener_runtime = runtime.clone();
+        let proxy_handle = tokio::spawn(async move {
+            if let Err(e) = listener_runtime.run_listener(proxy_addr).await {
+                tracing::warn!(error = %e, "MITM listener stopped with error");
+            }
+        });
+        *state.proxy_runtime.lock().map_err(|e| e.to_string())? = Some(runtime.clone());
+        *state.proxy_addr.lock().map_err(|e| e.to_string())? = Some(proxy_addr);
+        *state.proxy_task.lock().map_err(|e| e.to_string())? = Some(proxy_handle);
+
+        // 2) Start the transparent redirect that funnels port-443 into the listener.
+        //    The redirect thread owns the WinDivert handle (not Send-safe), so we
+        //    spawn it here and signal stop via `state.redirect_stop`.
+        state.redirect_stop.store(false, Ordering::SeqCst);
+        let stop = state.redirect_stop.clone();
+        let redirect_handle = std::thread::spawn(move || {
+            match flowlens_capture::RedirectEngine::new(MITM_PORT) {
+                Ok(engine) => {
+                    let _ = engine.start();
+                    if let Err(e) = flowlens_capture::spawn_redirect(engine) {
+                        tracing::warn!(err = ?e, "WinDivert redirect spawn failed");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("WinDivert redirect unavailable: {e}");
+                }
+            }
+            while !stop.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        });
+        *state.redirect_task.lock().map_err(|e| e.to_string())? = Some(redirect_handle);
+        println!("WinDivert redirect + MITM listener started on port {MITM_PORT}");
+        let _ = app_handle.emit("capture-started", ());
+        return Ok(());
+    }
+    #[cfg(not(feature = "windivert"))]
+    if matches!(mode, Some(CaptureMode::WinDivert)) {
+        eprintln!("WinDivert support not compiled in; rebuild with --features windivert");
+    }
+
+    // ── Npcap / Mock mode (default) ─────────────────────────────────────
     let engine = match device {
         Some(dev) if !dev.trim().is_empty() => Engine::new_pcap(dev),
         _ => Engine::auto(),
     };
-    let bus: Arc<dyn EventBus> = state.event_bus.clone();
     match engine {
         Engine::Pcap(_) => {
             println!("Npcap engine selected");
@@ -219,10 +279,7 @@ pub async fn start_capture(
 }
 
 #[tauri::command]
-pub async fn stop_capture(
-    app_handle: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn stop_capture(app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     state.running.store(false, Ordering::SeqCst);
     if let Ok(mut t) = state.pump_task.lock() {
         if let Some(task) = t.take() {
@@ -231,6 +288,32 @@ pub async fn stop_capture(
                 let _ = tokio::time::timeout(std::time::Duration::from_secs(2), task).await;
             });
         }
+    }
+    // Stop the redirect engine and MITM listener.
+    #[cfg(feature = "windivert")]
+    {
+        state.redirect_stop.store(true, Ordering::SeqCst);
+        if let Ok(mut t) = state.redirect_task.lock() {
+            if let Some(task) = t.take() {
+                // The redirect thread polls `redirect_stop`; joining is best-effort.
+                let _ = task.join();
+            }
+        }
+        let _ = state
+            .proxy_task
+            .lock()
+            .map(|mut t| t.take())
+            .unwrap_or_default();
+        let _ = state
+            .proxy_addr
+            .lock()
+            .map(|mut t| t.take())
+            .unwrap_or_default();
+        let _ = state
+            .proxy_runtime
+            .lock()
+            .map(|mut t| t.take())
+            .unwrap_or_default();
     }
     let _ = app_handle.emit("capture-stopped", ());
     Ok(())
@@ -460,11 +543,21 @@ pub async fn export_har(
 
     for event in events {
         match event {
-            TrafficEvent::HttpRequest { session_id, conn: _, request } => {
-                let headers_vec: Vec<HarHeader> = request.headers.iter()
-                    .map(|(n, v)| HarHeader { name: n.clone(), value: v.clone() })
+            TrafficEvent::HttpRequest {
+                session_id,
+                conn: _,
+                request,
+            } => {
+                let headers_vec: Vec<HarHeader> = request
+                    .headers
+                    .iter()
+                    .map(|(n, v)| HarHeader {
+                        name: n.clone(),
+                        value: v.clone(),
+                    })
                     .collect();
-                let headers_size: i64 = headers_vec.iter()
+                let headers_size: i64 = headers_vec
+                    .iter()
                     .map(|h| (h.name.len() + h.value.len()) as i64)
                     .sum();
 
@@ -473,35 +566,55 @@ pub async fn export_har(
                     url: request.url.clone(),
                     http_version: format_http_version(&request.request_line_version),
                     cookies: Vec::new(),
-                    headers: if options.headers() { headers_vec.clone() } else { Vec::new() },
+                    headers: if options.headers() {
+                        headers_vec.clone()
+                    } else {
+                        Vec::new()
+                    },
                     query_string: Vec::new(),
                     post_data: if options.bodies() {
                         request.body.as_ref().and_then(|b| {
-                            if b.is_empty() { None } else {
+                            if b.is_empty() {
+                                None
+                            } else {
                                 Some(HarPostData {
                                     mime_type: "application/octet-stream".to_string(),
                                     text: base64_encode(b),
                                 })
                             }
                         })
-                    } else { None },
+                    } else {
+                        None
+                    },
                     headers_size: if options.headers() { headers_size } else { 0 },
                     body_size: request.body_size as i64,
                 };
                 pending_requests.insert(session_id.0, (req, request.timestamp));
             }
-            TrafficEvent::HttpResponse { session_id, conn: _, response } => {
+            TrafficEvent::HttpResponse {
+                session_id,
+                conn: _,
+                response,
+            } => {
                 if let Some((req, req_ts)) = pending_requests.remove(&session_id.0) {
                     let resp_time = response.timestamp;
                     let time_delta = resp_time - req_ts;
-                    let content_type = response.headers.iter()
+                    let content_type = response
+                        .headers
+                        .iter()
                         .find(|(n, _)| n.eq_ignore_ascii_case("content-type"))
                         .map(|(_, v)| v.clone())
                         .unwrap_or_else(|| "application/octet-stream".to_string());
-                    let resp_headers_vec: Vec<HarHeader> = response.headers.iter()
-                        .map(|(n, v)| HarHeader { name: n.clone(), value: v.clone() })
+                    let resp_headers_vec: Vec<HarHeader> = response
+                        .headers
+                        .iter()
+                        .map(|(n, v)| HarHeader {
+                            name: n.clone(),
+                            value: v.clone(),
+                        })
                         .collect();
-                    let resp_headers_size: i64 = resp_headers_vec.iter()
+                    let resp_headers_size: i64 = resp_headers_vec
+                        .iter()
                         .map(|h| (h.name.len() + h.value.len()) as i64)
                         .sum();
                     let entry = HarEntry {
@@ -513,20 +626,37 @@ pub async fn export_har(
                             status_text: response.status_text.clone(),
                             http_version: format_http_version(&response.version),
                             cookies: Vec::new(),
-                            headers: if options.headers() { resp_headers_vec.clone() } else { Vec::new() },
+                            headers: if options.headers() {
+                                resp_headers_vec.clone()
+                            } else {
+                                Vec::new()
+                            },
                             content: HarContent {
                                 size: response.body_size as i64,
                                 mime_type: content_type,
                                 text: if options.bodies() {
                                     response.body.as_ref().map(|b| base64_encode(b))
-                                } else { None },
+                                } else {
+                                    None
+                                },
                             },
                             redirect_url: String::new(),
-                            headers_size: if options.headers() { resp_headers_size } else { 0 },
+                            headers_size: if options.headers() {
+                                resp_headers_size
+                            } else {
+                                0
+                            },
                             body_size: response.body_size as i64,
                         },
-                        cache: HarCache { before_request: None, after_request: None },
-                        time: if options.timing() { time_delta.max(0) } else { 0 },
+                        cache: HarCache {
+                            before_request: None,
+                            after_request: None,
+                        },
+                        time: if options.timing() {
+                            time_delta.max(0)
+                        } else {
+                            0
+                        },
                         timings: if options.timing() {
                             HarTiming {
                                 send: 0,
@@ -534,7 +664,11 @@ pub async fn export_har(
                                 receive: time_delta / 2,
                             }
                         } else {
-                            HarTiming { send: 0, wait: 0, receive: 0 }
+                            HarTiming {
+                                send: 0,
+                                wait: 0,
+                                receive: 0,
+                            }
                         },
                     };
                     entries.push(entry);
@@ -559,27 +693,71 @@ pub async fn export_har(
     };
 
     let json = serde_json::to_string_pretty(&har).map_err(|e| e.to_string())?;
-    let mut file = File::create(&path)
-        .map_err(|e| format!("无法创建文件 {}: {e}", path.display()))?;
+    let mut file =
+        File::create(&path).map_err(|e| format!("无法创建文件 {}: {e}", path.display()))?;
     file.write_all(json.as_bytes())
         .map_err(|e| format!("写入文件 {} 失败: {e}", path.display()))?;
 
     Ok(())
 }
 
+/// Install the CA certificate (identified by `cn`) into the Windows
+/// Trusted Root store. If no CA has been generated yet for `cn`, one is
+/// created first via the in-memory engine.
 #[tauri::command]
-pub async fn install_ca(pem: String) -> Result<(), String> {
+pub async fn install_ca(state: State<'_, AppState>, cn: String) -> Result<(), String> {
+    // Ensure a CA exists for this CN (generate on first use).
+    let pem = {
+        let mut engine = state.ca_manager.lock().map_err(|e| e.to_string())?;
+        match engine.ca_pem() {
+            Some(p) => p,
+            None => {
+                let ca = engine.generate_ca(&cn).map_err(|e| e.to_string())?;
+                if let Ok(mut info) = state.ca_info.lock() {
+                    *info = Some(ca.clone());
+                }
+                ca.certificate_pem
+            }
+        }
+    };
     cert_store::install_ca_to_store(&pem).map_err(|e| e.to_string())
 }
 
+/// Uninstall the CA certificate (identified by `cn`) from the Windows
+/// certificate stores.
 #[tauri::command]
-pub async fn uninstall_ca(pem: String) -> Result<(), String> {
+pub async fn uninstall_ca(state: State<'_, AppState>, cn: String) -> Result<(), String> {
+    let engine = state.ca_manager.lock().map_err(|e| e.to_string())?;
+    let pem = engine
+        .ca_pem()
+        .ok_or_else(|| format!("no CA generated for CN '{}'; nothing to uninstall", cn))?;
     cert_store::uninstall_ca_from_store(&pem).map_err(|e| e.to_string())
 }
 
+/// Check whether the CA certificate (identified by `cn`) is installed in
+/// the Windows Trusted Root store.
 #[tauri::command]
-pub async fn check_ca_status(pem: String) -> Result<bool, String> {
-    Ok(cert_store::is_ca_installed(&pem))
+pub async fn check_ca_status(
+    state: State<'_, AppState>,
+    cn: String,
+) -> Result<serde_json::Value, String> {
+    let engine = state.ca_manager.lock().map_err(|e| e.to_string())?;
+    let pem = match engine.ca_pem() {
+        Some(p) => p,
+        None => {
+            return Ok(serde_json::json!({
+                "installed": false,
+                "cn": cn,
+                "pem": null,
+            }));
+        }
+    };
+    let installed = cert_store::is_ca_installed(&pem);
+    Ok(serde_json::json!({
+        "installed": installed,
+        "cn": cn,
+        "pem": pem,
+    }))
 }
 
 #[tauri::command]
@@ -617,7 +795,11 @@ pub async fn modify_session(
         .and_then(|v| serde_json::from_value(v.clone()).ok());
     state
         .intercept
-        .modify(flowlens_core::SessionId(session_id), new_request, new_response)
+        .modify(
+            flowlens_core::SessionId(session_id),
+            new_request,
+            new_response,
+        )
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -648,11 +830,10 @@ fn normalize_rewrite_priority(rule: &mut serde_json::Value) -> Result<u8, String
     let priority = match obj.get("priority") {
         None | Some(serde_json::Value::Null) => flowlens_core::DEFAULT_PRIORITY,
         Some(value) => {
-            let raw = value.as_u64().ok_or_else(|| {
-                format!("priority must be an integer in 0..=255, got {}", value)
-            })?;
-            u8::try_from(raw)
-                .map_err(|_| format!("priority must be in 0..=255, got {}", raw))?
+            let raw = value
+                .as_u64()
+                .ok_or_else(|| format!("priority must be an integer in 0..=255, got {}", value))?;
+            u8::try_from(raw).map_err(|_| format!("priority must be in 0..=255, got {}", raw))?
         }
     };
 
@@ -666,8 +847,8 @@ pub async fn add_rewrite_rule(
     mut rule: serde_json::Value,
 ) -> Result<(), String> {
     normalize_rewrite_priority(&mut rule)?;
-    let rewrite_rule: flowlens_core::RewriteRule = serde_json::from_value(rule)
-        .map_err(|e| format!("Invalid rule JSON: {}", e))?;
+    let rewrite_rule: flowlens_core::RewriteRule =
+        serde_json::from_value(rule).map_err(|e| format!("Invalid rule JSON: {}", e))?;
 
     let mut engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
     engine.add_rule(rewrite_rule);
@@ -691,7 +872,9 @@ pub async fn toggle_rewrite_rule(
 }
 
 #[tauri::command]
-pub async fn list_rewrite_rules(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
+pub async fn list_rewrite_rules(
+    state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
     let rules = {
         let engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
         engine.list_rules().to_vec()
@@ -718,8 +901,8 @@ pub async fn preview_rewrite(
     state: State<'_, AppState>,
     request: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let req: flowlens_core::HttpRequest = serde_json::from_value(request)
-        .map_err(|e| format!("Invalid request JSON: {}", e))?;
+    let req: flowlens_core::HttpRequest =
+        serde_json::from_value(request).map_err(|e| format!("Invalid request JSON: {}", e))?;
     let engine = state.rewrite_engine.lock().map_err(|e| e.to_string())?;
     let modified = engine.apply_rules(req);
     Ok(serde_json::json!({
@@ -755,16 +938,16 @@ pub async fn replay_request(
     session_id: u64,
 ) -> Result<serde_json::Value, String> {
     use flowlens_replay::ReplayClient;
-    
+
     let request = state
         .intercept
         .get_request(flowlens_core::SessionId(session_id))
         .await
         .ok_or_else(|| format!("Request not found for session {}", session_id))?;
-    
+
     let client = ReplayClient::new();
     let response = client.replay(&request).await.map_err(|e| e.to_string())?;
-    
+
     serde_json::to_value(response).map_err(|e| e.to_string())
 }
 
@@ -819,7 +1002,11 @@ pub async fn read_theme() -> Result<String, String> {
     match std::fs::read_to_string(theme_file_path()) {
         Ok(s) => {
             let s = s.trim().to_string();
-            if s.is_empty() { Ok("dark".to_string()) } else { Ok(s) }
+            if s.is_empty() {
+                Ok("dark".to_string())
+            } else {
+                Ok(s)
+            }
         }
         Err(_) => Ok("dark".to_string()),
     }
@@ -852,7 +1039,11 @@ pub async fn set_event_max(cap: usize) -> Result<(), String> {
 #[tauri::command]
 pub async fn get_event_max() -> Result<usize, String> {
     match std::fs::read_to_string(event_max_file_path()) {
-        Ok(s) => Ok(s.trim().parse::<usize>().unwrap_or(10_000).clamp(100, 50_000)),
+        Ok(s) => Ok(s
+            .trim()
+            .parse::<usize>()
+            .unwrap_or(10_000)
+            .clamp(100, 50_000)),
         Err(_) => Ok(10_000),
     }
 }
@@ -894,10 +1085,16 @@ fn decrypt_entry(
 }
 
 #[tauri::command]
-pub async fn list_decrypt_domains(state: State<'_, AppState>) -> Result<Vec<UiDecryptEntry>, String> {
+pub async fn list_decrypt_domains(
+    state: State<'_, AppState>,
+) -> Result<Vec<UiDecryptEntry>, String> {
     let policy = state.decrypt_policy.lock().map_err(|e| e.to_string())?;
     let engine = state.ca_manager.lock().map_err(|e| e.to_string())?;
-    Ok(policy.rules().iter().map(|r| decrypt_entry(r, &engine)).collect())
+    Ok(policy
+        .rules()
+        .iter()
+        .map(|r| decrypt_entry(r, &engine))
+        .collect())
 }
 
 #[tauri::command]
@@ -939,10 +1136,7 @@ pub async fn toggle_decrypt_domain(
 }
 
 #[tauri::command]
-pub async fn issue_for_sni(
-    state: State<'_, AppState>,
-    sni: String,
-) -> Result<SniCertInfo, String> {
+pub async fn issue_for_sni(state: State<'_, AppState>, sni: String) -> Result<SniCertInfo, String> {
     let engine = state.ca_manager.lock().map_err(|e| e.to_string())?;
     let issued = engine.ensure_leaf_cert(&sni).map_err(|e| e.to_string())?;
     Ok(SniCertInfo {
@@ -954,7 +1148,6 @@ pub async fn issue_for_sni(
         sans: issued.sans,
     })
 }
-
 
 /// Return full CA information (CN, PEM, fingerprint, installed_at).
 #[tauri::command]
@@ -984,7 +1177,9 @@ pub async fn get_ca_info(state: State<'_, AppState>) -> Result<Option<CaInfo>, S
     };
 
     // Exercise both required CaManager accessors.
-    let pem = engine.ca_pem().unwrap_or_else(|| ca.certificate_pem.clone());
+    let pem = engine
+        .ca_pem()
+        .unwrap_or_else(|| ca.certificate_pem.clone());
     let _installed = engine.check_installed(&ca.cn);
 
     Ok(Some(CaInfo {
@@ -1026,10 +1221,7 @@ fn render_ca_qr_png(data: &str) -> Result<String, String> {
 
 /// Generate a new CA with the given CN and return the PEM.
 #[tauri::command]
-pub async fn generate_ca(
-    state: State<'_, AppState>,
-    cn: String,
-) -> Result<String, String> {
+pub async fn generate_ca(state: State<'_, AppState>, cn: String) -> Result<String, String> {
     let engine = state.ca_manager.lock().map_err(|e| e.to_string())?;
     let ca = engine.setup_ca(&cn).map_err(|e| e.to_string())?;
     // Keep the cached CaInfo in AppState so get_ca_info can report CN/fingerprint/installed_at.
@@ -1057,13 +1249,22 @@ pub async fn query_sessions(
     query: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let pid = query.get("pid").and_then(|v| v.as_u64()).map(|v| v as u32);
-    let host = query.get("host").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let host = query
+        .get("host")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let protocol = query
         .get("protocol")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let limit = query.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
-    let offset = query.get("offset").and_then(|v| v.as_u64()).map(|v| v as usize);
+    let limit = query
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+    let offset = query
+        .get("offset")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
 
     let sessions = state.intercept.list_paused().await; // placeholder; use session manager when wired
     let _ = (pid, host, protocol, limit, offset, sessions);
@@ -1101,15 +1302,17 @@ pub async fn aggregate_by_pid(state: State<'_, AppState>) -> Result<serde_json::
 
     let result: Vec<serde_json::Value> = stats
         .into_iter()
-        .map(|(pid, (process_name, session_count, bytes_sent, bytes_received))| {
-            serde_json::json!({
-                "pid": pid,
-                "process_name": process_name,
-                "session_count": session_count,
-                "bytes_sent": bytes_sent,
-                "bytes_received": bytes_received,
-            })
-        })
+        .map(
+            |(pid, (process_name, session_count, bytes_sent, bytes_received))| {
+                serde_json::json!({
+                    "pid": pid,
+                    "process_name": process_name,
+                    "session_count": session_count,
+                    "bytes_sent": bytes_sent,
+                    "bytes_received": bytes_received,
+                })
+            },
+        )
         .collect();
 
     Ok(serde_json::json!(result))
@@ -1160,7 +1363,9 @@ pub async fn aggregate_by_host(state: State<'_, AppState>) -> Result<serde_json:
 }
 
 /// Extract a session id from an event when present.
-fn event_session_id(event: &flowlens_core::TrafficEvent) -> Option<flowlens_core::models::SessionId> {
+fn event_session_id(
+    event: &flowlens_core::TrafficEvent,
+) -> Option<flowlens_core::models::SessionId> {
     match event {
         flowlens_core::TrafficEvent::HttpRequest { session_id, .. } => Some(*session_id),
         flowlens_core::TrafficEvent::HttpResponse { session_id, .. } => Some(*session_id),
@@ -1221,10 +1426,7 @@ pub async fn delete_session(
 /// Idempotent: starting an already-running proxy is a no-op and returns the
 /// current listening port.
 #[tauri::command]
-pub async fn start_proxy(
-    state: State<'_, AppState>,
-    port: Option<u16>,
-) -> Result<u16, String> {
+pub async fn start_proxy(state: State<'_, AppState>, port: Option<u16>) -> Result<u16, String> {
     let requested_port = port.unwrap_or(crate::proxy::DEFAULT_PORT);
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], requested_port));
 
@@ -1244,18 +1446,9 @@ pub async fn start_proxy(
     });
 
     // Store both the runtime handle (for graceful shutdown) and the task handle.
-    *state
-        .proxy_runtime
-        .lock()
-        .map_err(|e| e.to_string())? = Some(runtime.clone());
-    *state
-        .proxy_addr
-        .lock()
-        .map_err(|e| e.to_string())? = Some(addr);
-    *state
-        .proxy_task
-        .lock()
-        .map_err(|e| e.to_string())? = Some(handle);
+    *state.proxy_runtime.lock().map_err(|e| e.to_string())? = Some(runtime.clone());
+    *state.proxy_addr.lock().map_err(|e| e.to_string())? = Some(addr);
+    *state.proxy_task.lock().map_err(|e| e.to_string())? = Some(handle);
 
     let bound_port = addr.port();
     Ok(bound_port)
@@ -1280,17 +1473,9 @@ pub async fn stop_proxy(state: State<'_, AppState>) -> Result<bool, String> {
 
     // Take the task handle and await it so the listener is released before we
     // return. A missing handle means we were not running.
-    let handle = state
-        .proxy_task
-        .lock()
-        .map_err(|e| e.to_string())?
-        .take();
+    let handle = state.proxy_task.lock().map_err(|e| e.to_string())?.take();
 
-    state
-        .proxy_addr
-        .lock()
-        .map_err(|e| e.to_string())?
-        .take();
+    state.proxy_addr.lock().map_err(|e| e.to_string())?.take();
 
     match handle {
         Some(handle) => {
@@ -1307,9 +1492,7 @@ pub async fn stop_proxy(state: State<'_, AppState>) -> Result<bool, String> {
 /// listen address (`127.0.0.1:<port>`) or empty when stopped, and
 /// `decrypt_domains` lists the host rules currently enabled for TLS termination.
 #[tauri::command]
-pub async fn get_proxy_status(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+pub async fn get_proxy_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let running = {
         // Prefer the runtime's own flag when present; fall back to the task slot.
         let runtime_running = state
@@ -1375,7 +1558,8 @@ pub async fn pick_save_path(
             let _ = tx.send(file_path.map(|p| p.to_string()));
         });
 
-    rx.recv().map_err(|e| format!("dialog closed unexpectedly: {e}"))
+    rx.recv()
+        .map_err(|e| format!("dialog closed unexpectedly: {e}"))
 }
 
 // ---------- Editable keyboard shortcuts (app_data_dir/shortcuts.json) ----------
@@ -1410,8 +1594,8 @@ pub async fn read_shortcuts(app: AppHandle) -> Result<serde_json::Value, String>
             if trimmed.is_empty() {
                 return Ok(serde_json::json!({}));
             }
-            let value: serde_json::Value =
-                serde_json::from_str(trimmed).map_err(|e| format!("invalid shortcuts.json: {e}"))?;
+            let value: serde_json::Value = serde_json::from_str(trimmed)
+                .map_err(|e| format!("invalid shortcuts.json: {e}"))?;
             if !value.is_object() {
                 return Err("shortcuts.json must contain a JSON object".to_string());
             }
@@ -1428,8 +1612,8 @@ pub async fn write_shortcuts(app: AppHandle, shortcuts: serde_json::Value) -> Re
         return Err("shortcuts must be a JSON object".to_string());
     }
     let path = shortcuts_file_path(&app)?;
-    let serialized =
-        serde_json::to_string_pretty(&shortcuts).map_err(|e| format!("failed to encode shortcuts: {e}"))?;
+    let serialized = serde_json::to_string_pretty(&shortcuts)
+        .map_err(|e| format!("failed to encode shortcuts: {e}"))?;
     std::fs::write(&path, serialized).map_err(|e| format!("failed to write shortcuts: {e}"))
 }
 
@@ -1461,4 +1645,3 @@ mod tests {
         assert!(normalize_rewrite_priority(&mut value).is_err());
     }
 }
-
