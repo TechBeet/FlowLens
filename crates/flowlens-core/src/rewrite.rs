@@ -71,7 +71,9 @@ pub struct RewriteEngine {
 }
 
 impl Default for RewriteEngine {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RewriteEngine {
@@ -108,8 +110,14 @@ impl RewriteEngine {
         &self.rules
     }
 
-    pub fn matches_request(&self, request: &HttpRequest, rule: &RewriteRule) -> Option<RewriteMatch> {
-        if !rule.enabled { return None; }
+    pub fn matches_request(
+        &self,
+        request: &HttpRequest,
+        rule: &RewriteRule,
+    ) -> Option<RewriteMatch> {
+        if !rule.enabled {
+            return None;
+        }
         let mut matched_conditions: Vec<String> = Vec::new();
 
         if let Some(ref pattern) = rule.method_regex {
@@ -119,7 +127,9 @@ impl RewriteEngine {
                 } else {
                     return None;
                 }
-            } else { return None; }
+            } else {
+                return None;
+            }
         }
 
         if let Some(ref pattern) = rule.url_regex {
@@ -129,21 +139,28 @@ impl RewriteEngine {
                 } else {
                     return None;
                 }
-            } else { return None; }
+            } else {
+                return None;
+            }
         }
 
         if let Some(header_tuple) = &rule.header_match {
             let (key, value) = header_tuple;
-            let has_header = request.headers.iter().any(|(k, v)| {
-                k.eq_ignore_ascii_case(key) && v == value
-            });
-            if !has_header { return None; }
+            let has_header = request
+                .headers
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(key) && v == value);
+            if !has_header {
+                return None;
+            }
             matched_conditions.push(format!("header={}:{}", key, value));
         }
 
         if let Some(ref needle) = rule.body_contains {
             let body = request.body.as_ref()?;
-            if !contains_slice(body, needle) { return None; }
+            if !contains_slice(body, needle) {
+                return None;
+            }
             matched_conditions.push("body_contains".to_string());
         }
 
@@ -159,7 +176,9 @@ impl RewriteEngine {
         let mut applied_rules: Vec<String> = Vec::new();
 
         for rule in &self.rules {
-            if !rule.enabled { continue; }
+            if !rule.enabled {
+                continue;
+            }
             if self.matches_request(&request, rule).is_some() {
                 applied_rules.push(rule.id.clone());
                 for action in &rule.actions {
@@ -172,9 +191,11 @@ impl RewriteEngine {
                             modified.method = method.clone();
                         }
                         RewriteAction::SetHeader(name, value) => {
-                            if let Some(pos) = modified.headers.iter().position(|(k, _)| {
-                                k.eq_ignore_ascii_case(name)
-                            }) {
+                            if let Some(pos) = modified
+                                .headers
+                                .iter()
+                                .position(|(k, _)| k.eq_ignore_ascii_case(name))
+                            {
                                 modified.headers[pos] = (name.clone(), value.clone());
                             } else {
                                 modified.headers.push((name.clone(), value.clone()));
@@ -184,9 +205,9 @@ impl RewriteEngine {
                             modified.headers.push((name.clone(), value.clone()));
                         }
                         RewriteAction::RemoveHeader(name) => {
-                            modified.headers.retain(|(k, _)| {
-                                !k.eq_ignore_ascii_case(name)
-                            });
+                            modified
+                                .headers
+                                .retain(|(k, _)| !k.eq_ignore_ascii_case(name));
                         }
                         RewriteAction::SetBody(body) => {
                             modified.body = Some(body.clone());
@@ -197,7 +218,11 @@ impl RewriteEngine {
             }
         }
 
-        ModifiedRequest { original: request, modified, applied_rules }
+        ModifiedRequest {
+            original: request,
+            modified,
+            applied_rules,
+        }
     }
 
     pub fn load_rules(path: &str) -> Result<Vec<RewriteRule>, Box<dyn std::error::Error>> {
@@ -214,10 +239,16 @@ impl RewriteEngine {
 }
 
 fn contains_slice(haystack: &[u8], needle: &[u8]) -> bool {
-    if needle.is_empty() { return true; }
-    if haystack.len() < needle.len() { return false; }
+    if needle.is_empty() {
+        return true;
+    }
+    if haystack.len() < needle.len() {
+        return false;
+    }
     for i in 0..=(haystack.len() - needle.len()) {
-        if haystack[i..i + needle.len()] == *needle { return true; }
+        if haystack[i..i + needle.len()] == *needle {
+            return true;
+        }
     }
     false
 }
@@ -260,7 +291,9 @@ mod tests {
         let post_req = make_request("POST", "http://example.com");
         let get_req = make_request("GET", "http://example.com");
 
-        assert!(engine.matches_request(&post_req, &engine.rules[0]).is_some());
+        assert!(engine
+            .matches_request(&post_req, &engine.rules[0])
+            .is_some());
         assert!(engine.matches_request(&get_req, &engine.rules[0]).is_none());
     }
 
@@ -315,9 +348,11 @@ mod tests {
         let result = engine.apply_rules(req);
 
         assert_eq!(result.modified.headers.len(), 3);
-        assert!(result.modified.headers.iter().any(|(k, v)| {
-            k == "X-Custom" && v == "value"
-        }));
+        assert!(result
+            .modified
+            .headers
+            .iter()
+            .any(|(k, v)| { k == "X-Custom" && v == "value" }));
     }
 
     #[test]
