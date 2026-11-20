@@ -101,8 +101,7 @@ mod tests {
         let inputs: Vec<&[u8]> = vec![b"\x01hello", b"\x02world", b"\x03rust", b"\x04tls"];
 
         let parallel = decryptor.decrypt_batch(&inputs);
-        let sequential: Vec<Option<Vec<u8>>> =
-            inputs.iter().map(|d| decrypt_one(d)).collect();
+        let sequential: Vec<Option<Vec<u8>>> = inputs.iter().map(|d| decrypt_one(d)).collect();
 
         assert_eq!(parallel.len(), sequential.len());
         for (p, s) in parallel.iter().zip(sequential.iter()) {
