@@ -274,7 +274,10 @@ mod tests {
         assert!(f.is_request);
         assert_eq!(f.method.as_deref(), Some("GET"));
         assert_eq!(f.path.as_deref(), Some("/api/users"));
-        assert!(f.headers.iter().any(|(k, v)| k == "host" && v == "example.com"));
+        assert!(f
+            .headers
+            .iter()
+            .any(|(k, v)| k == "host" && v == "example.com"));
     }
 
     #[test]
