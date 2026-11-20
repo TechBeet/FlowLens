@@ -13,6 +13,7 @@ FlowLens 是一款运行在本机的 HTTP/HTTPS 抓包与调试工具，用于�
 - Windows 10/11（64 位）
 - Microsoft Edge WebView2 运行时（多数 Windows 已内置，缺失时安装程序会提示）
 - 抓包依赖 **Npcap**（如需捕获真实网卡流量，请先安装 Npcap 并在安装时勾选 WinPcap 兼容模式）
+- 可选：**WinDivert**（无需代理即可解密 HTTPS，需以管理员身份运行）
 
 ### 启动
 
