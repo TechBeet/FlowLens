@@ -1,6 +1,6 @@
 mod commands;
-mod state;
 mod proxy;
+mod state;
 
 use flowlens_core::BroadcastEventBus;
 
@@ -62,9 +62,7 @@ pub fn run() {
             commands::get_proxy_status,
             commands::pick_save_path,
         ])
-        .setup(|_app| {
-            Ok(())
-        })
+        .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
