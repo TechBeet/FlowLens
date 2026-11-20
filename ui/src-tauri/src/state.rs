@@ -1,13 +1,13 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::{Mutex, Arc};
-use tokio::task::JoinHandle;
-use flowlens_core::TrafficStats;
+use crate::proxy::ProxyRuntime;
 use flowlens_core::BroadcastEventBus;
-use flowlens_core::TrafficEvent;
 use flowlens_core::InterceptEngine;
 use flowlens_core::RewriteEngine;
+use flowlens_core::TrafficEvent;
+use flowlens_core::TrafficStats;
 use flowlens_tls::{CaInfo, CaManager, DomainPolicy, InMemoryTlsEngine};
-use crate::proxy::ProxyRuntime;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
+use tokio::task::JoinHandle;
 
 pub struct AppState {
     pub event_bus: Arc<BroadcastEventBus>,
@@ -23,6 +23,12 @@ pub struct AppState {
     pub ca_manager: Arc<Mutex<InMemoryTlsEngine>>,
     pub decrypt_policy: Arc<Mutex<DomainPolicy>>,
     pub ca_info: Arc<Mutex<Option<CaInfo>>>,
+    /// Signal to stop the transparent redirect thread (no-proxy HTTPS interception).
+    #[cfg(feature = "windivert")]
+    pub redirect_stop: Arc<AtomicBool>,
+    /// Handle to the redirect thread.
+    #[cfg(feature = "windivert")]
+    pub redirect_task: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl AppState {
@@ -44,6 +50,10 @@ impl AppState {
             ca_manager: Arc::new(Mutex::new(ca_engine)),
             decrypt_policy: Arc::new(Mutex::new(DomainPolicy::new())),
             ca_info: Arc::new(Mutex::new(ca)),
+            #[cfg(feature = "windivert")]
+            redirect_stop: Arc::new(AtomicBool::new(false)),
+            #[cfg(feature = "windivert")]
+            redirect_task: Mutex::new(None),
         }
     }
 }
