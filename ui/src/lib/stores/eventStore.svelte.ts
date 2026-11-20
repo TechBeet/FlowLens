@@ -157,7 +157,7 @@ export function createEventStore() {
     loading = true;
     error = null;
     try {
-      await api.startCapture(device);
+      await api.startCapture(undefined, device);
     } catch (e) {
       error = `启动失败：${e}`;
       throw e;
