@@ -153,7 +153,7 @@ impl SqliteStorage {
             .max_connections(5)
             .connect_with(options)
             .await?;
-        
+
         // Create a dedicated current-thread runtime for sync wrapper methods.
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -365,7 +365,7 @@ impl StorageEngine for SqliteStorage {
         let data = self.rt.block_on(async {
             sqlx::query_scalar::<_, String>("SELECT event_data FROM sessions WHERE id = ?")
                 .bind(id.0 as i64)
-                 .fetch_optional(self.pool.as_ref())
+                .fetch_optional(self.pool.as_ref())
                 .await
         })?;
 
@@ -513,7 +513,10 @@ mod tests {
         let id = storage.insert_session(&session).unwrap();
         assert!(id.0 > 0);
 
-        let got = storage.get_session(id).unwrap().expect("session must exist");
+        let got = storage
+            .get_session(id)
+            .unwrap()
+            .expect("session must exist");
         assert_eq!(got.session_id, id);
         assert_eq!(got.process.pid, 1234);
         assert_eq!(got.process.name, "test.exe");
@@ -673,27 +676,20 @@ mod tests {
         assert!(id.0 > 0);
 
         // Poison the `sessions` lock by unwinding while holding its guard.
-        let poison_result =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let _guard = storage.sessions.write().unwrap();
-                panic!("boom while holding the sessions lock");
-            }));
+        let poison_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = storage.sessions.write().unwrap();
+            panic!("boom while holding the sessions lock");
+        }));
         assert!(poison_result.is_err());
         assert!(storage.sessions.is_poisoned());
 
         // Poisoning must degrade to a clear Err, never a panic.
-        let read_err = storage
-            .list_sessions()
-            .unwrap_err()
-            .to_string();
+        let read_err = storage.list_sessions().unwrap_err().to_string();
         assert!(
             read_err.contains("poisoned"),
             "expected a poisoned lock error, got: {read_err}"
         );
-        let write_err = storage
-            .insert_session(&session)
-            .unwrap_err()
-            .to_string();
+        let write_err = storage.insert_session(&session).unwrap_err().to_string();
         assert!(
             write_err.contains("poisoned"),
             "expected a poisoned lock error, got: {write_err}"
