@@ -1,0 +1,35 @@
+# Tasks
+- [ ] Task 1: Commit Cargo.lock - 将 Cargo.lock 提交为第一个独立文件
+- [ ] Task 2: Commit Cargo.toml - 将 Cargo.toml 提交为第二个独立文件
+- [ ] Task 3: Commit crates/flowlens-core/* - 将 flowlens-core 源码文件逐个提交
+- [ ] Task 4: Commit crates/flowlens-tls/* - 将 flowlens-tls 源码文件逐个提交
+- [ ] Task 5: Commit crates/flowlens-capture/* - 将 flowlens-capture 源码文件逐个提交
+- [ ] Task 6: Commit crates/flowlens-mcp/* - 将 flowlens-mcp 源码文件逐个提交
+- [ ] Task 7: Commit crates/flowlens-export/* - 将 flowlens-export 源码文件逐个提交
+- [ ] Task 8: Commit crates/flowlens-replay/* - 将 flowlens-replay 源码文件逐个提交
+- [ ] Task 9: Commit crates/flowlens-storage/* - 将 flowlens-storage 源码文件逐个提交
+- [ ] Task 10: Commit ui/* - 将前端源码文件逐个提交
+- [ ] Task 11: Commit docs/* - 将文档文件提交
+- [ ] Task 12: Commit LICENSE - 将 LICENSE 文件提交
+- [ ] Task 12: Commit README.md - 将 README 文件提交
+- [ ] Task 13: Commit .trae/* - 将 .trae 目录文件提交
+- [ ] Task 14: Commit ui/run_npm_build.bat - 将构建脚本提交
+- [ ] Task 14: Commit ui/src-tauri/run_cargo_check.bat - 将检查脚本提交
+- [ ] Task 14: Commit ui/src-tauri/run_cargo_clippy.bat - 将 clippy 脚本提交
+- [ ] Task 15: git push - 将所有提交推送到 GitHub
+
+# Task Dependencies
+- [Task 1] must complete before [Task 15]
+- [Task 2] depends on [Task 1]
+- [Task 3] depends on [Task 1]
+- [Task 4] depends on [Task 1]
+- [Task 5] depends on [Task 1]
+- [Task 6] depends on [Task 1]
+- [Task 7] depends on [Task 1]
+- [Task 8] depends on [Task 1]
+- [Task 9] depends on [Task 1]
+- [Task 10] depends on [Task 1]
+- [Task 11] depends on [Task 1]
+- [Task 12] depends on [Task 1]
+- [Task 13] depends on [Task 1]
+- [Task 14] depends on [Task 13]
