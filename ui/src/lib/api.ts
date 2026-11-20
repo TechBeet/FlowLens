@@ -8,8 +8,14 @@ export type { RewriteRule, RewriteAction } from "./rewriteRules";
 
 // ---------- Tauri commands ----------
 
-export async function startCapture(device?: string): Promise<void> {
-  await invoke("start_capture", device ? { device } : {});
+/** Capture mode. `pcap` requires Npcap; `windivert` is transparent (no proxy). */
+export type CaptureMode = "pcap" | "windivert";
+
+export async function startCapture(mode?: CaptureMode, device?: string): Promise<void> {
+  await invoke("start_capture", {
+    ...(mode ? { mode } : {}),
+    ...(device ? { device } : {}),
+  });
 }
 
 export async function stopCapture(): Promise<void> {
