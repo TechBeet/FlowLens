@@ -11,14 +11,14 @@ pub use mitm::{
 };
 pub use policy::{matches_domain, normalize_domain, DomainPolicy, DomainPolicyAccess, DomainRule};
 
-use std::sync::RwLock;
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 use flowlens_core::models::{ConnectionKey, TlsVersion};
-use serde::Serialize;
 use rcgen::{
     Certificate, CertificateParams, DistinguishedName, DnType, KeyPair, PKCS_ECDSA_P256_SHA256,
 };
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 pub trait CaManager: Send + Sync {
@@ -156,7 +156,8 @@ impl InMemoryTlsEngine {
         *self
             .ca
             .write()
-            .map_err(|poisoned| TlsError::LockPoisoned(format!("ca: {poisoned}")))? = Some(ca.clone());
+            .map_err(|poisoned| TlsError::LockPoisoned(format!("ca: {poisoned}")))? =
+            Some(ca.clone());
         Ok(ca)
     }
 
@@ -388,7 +389,11 @@ impl CertIssuer for InMemoryTlsEngine {
 
 /// Trait for MITM proxy engines providing SNI-aware TLS termination.
 pub trait MitmProxy: CertIssuer {
-    fn build_server_config(&self, cert_pem: &str, key_pem: &str) -> Result<rustls::ServerConfig, TlsError>;
+    fn build_server_config(
+        &self,
+        cert_pem: &str,
+        key_pem: &str,
+    ) -> Result<rustls::ServerConfig, TlsError>;
     fn build_client_config(&self) -> Result<rustls::ClientConfig, TlsError>;
     fn extract_sni_from_client_hello(&self, data: &[u8]) -> Option<String>;
     fn issue_for_sni(&self, sni: &str) -> Result<(String, String), TlsError>;
@@ -398,7 +403,11 @@ pub trait MitmProxy: CertIssuer {
 }
 
 impl MitmProxy for InMemoryTlsEngine {
-    fn build_server_config(&self, cert_pem: &str, key_pem: &str) -> Result<rustls::ServerConfig, TlsError> {
+    fn build_server_config(
+        &self,
+        cert_pem: &str,
+        key_pem: &str,
+    ) -> Result<rustls::ServerConfig, TlsError> {
         crate::mitm::build_server_config(cert_pem, key_pem)
     }
     fn build_client_config(&self) -> Result<rustls::ClientConfig, TlsError> {
@@ -447,8 +456,6 @@ pub struct MitmContext {
     pub alpn: Option<String>,
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,7 +502,9 @@ mod tests {
 
         // Reconstruct a KeyPair from the returned private key DER.
         let leaf_key = KeyPair::from_der_and_sign_algo(
-            &rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(key.der.clone())),
+            &rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+                key.der.clone(),
+            )),
             &PKCS_ECDSA_P256_SHA256,
         )
         .expect("leaf key DER must parse with ECDSA P-256");
