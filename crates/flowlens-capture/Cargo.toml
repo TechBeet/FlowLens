@@ -18,3 +18,26 @@ serde_json = "1"
 # Real packet capture
 pcap = "2"
 chrono = { version = "0.4", features = ["serde"] }
+
+# WinDivert network layer capture (Phase 2: no-proxy HTTPS decryption).
+#
+# WinDivert is an optional, Windows-only capability and is therefore gated behind
+# the `windivert` cargo feature. That keeps `flowlens-capture` (and the whole
+# workspace) buildable on machines without the WinDivert SDK and on non-Windows
+# targets. Enable it with `--features windivert` on Windows.
+#
+# Linking notes:
+# * `vendored` compiles WinDivert from source into a DLL. WinDivert's own C
+#   objects define `memcpy`, which collides with the MSVC runtime used by the
+#   Tauri app, so it is only used on demand.
+# * With `default-features = false` we link the prebuilt WinDivert import
+#   library dynamically; the DLL/sys files must be deployed next to the
+#   executable (see `docs/USER_GUIDE.md`).
+[target.'cfg(windows)'.dependencies]
+windivert = { version = "0.7.0-beta.4", optional = true, default-features = false, features = ["vendored"] }
+windivert-sys = { version = "0.11.0-beta.2", optional = true }
+
+[features]
+default = []
+# Transparent (no-proxy) HTTPS interception via WinDivert.
+windivert = ["dep:windivert", "dep:windivert-sys"]
