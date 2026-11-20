@@ -6,11 +6,11 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use tokio::net::TcpListener;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tracing::{info, error};
+use tokio::net::TcpListener;
+use tracing::{error, info};
 
-use crate::json_rpc::{JsonRpcRequest, JsonRpcResponse, ErrorCode};
+use crate::json_rpc::{ErrorCode, JsonRpcRequest, JsonRpcResponse};
 use crate::tools::McpTool;
 
 /// MCP server implementation with TCP line-delimited JSON-RPC transport
@@ -21,7 +21,10 @@ pub struct McpServerImpl {
 
 impl McpServerImpl {
     pub fn new() -> Self {
-        Self { tools: Vec::new(), addr: None }
+        Self {
+            tools: Vec::new(),
+            addr: None,
+        }
     }
 
     pub fn register_tool(&mut self, tool: Arc<dyn McpTool>) {
@@ -61,28 +64,49 @@ impl McpServerImpl {
     }
 
     fn handle_tools_list(&self, req: JsonRpcRequest) -> JsonRpcResponse {
-        let tools: Vec<_> = self.tools.iter().map(|t| {
-            serde_json::json!({
-                "name": t.name(),
-                "description": t.description(),
-                "inputSchema": t.input_schema()
+        let tools: Vec<_> = self
+            .tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name(),
+                    "description": t.description(),
+                    "inputSchema": t.input_schema()
+                })
             })
-        }).collect();
+            .collect();
         JsonRpcResponse::success(req.id, serde_json::json!({ "tools": tools }))
     }
 
     fn handle_tools_call(&self, req: JsonRpcRequest) -> JsonRpcResponse {
         let params = match &req.params {
             Some(p) => p.clone(),
-            None => return JsonRpcResponse::error(req.id, ErrorCode::INVALID_PARAMS, "Missing required params field", None),
+            None => {
+                return JsonRpcResponse::error(
+                    req.id,
+                    ErrorCode::INVALID_PARAMS,
+                    "Missing required params field",
+                    None,
+                )
+            }
         };
 
         let tool_name = match params.get("name").and_then(|v| v.as_str()) {
             Some(name) => name.to_string(),
-            None => return JsonRpcResponse::error(req.id, ErrorCode::INVALID_PARAMS, "Missing required parameter: name", None),
+            None => {
+                return JsonRpcResponse::error(
+                    req.id,
+                    ErrorCode::INVALID_PARAMS,
+                    "Missing required parameter: name",
+                    None,
+                )
+            }
         };
 
-        let arguments = params.get("arguments").cloned().unwrap_or(serde_json::Value::Null);
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
 
         match self.tools.iter().find(|t| t.name() == tool_name) {
             Some(tool) => {
@@ -90,10 +114,20 @@ impl McpServerImpl {
                 let result = runtime.block_on(tool.invoke(arguments));
                 match result {
                     Ok(v) => JsonRpcResponse::success(req.id, v),
-                    Err(e) => JsonRpcResponse::error(req.id, ErrorCode::INTERNAL_ERROR, format!("Tool invocation failed: {}", e), None),
+                    Err(e) => JsonRpcResponse::error(
+                        req.id,
+                        ErrorCode::INTERNAL_ERROR,
+                        format!("Tool invocation failed: {}", e),
+                        None,
+                    ),
                 }
             }
-            None => JsonRpcResponse::error(req.id, ErrorCode::METHOD_NOT_FOUND, format!("Tool not found: {}", tool_name), None),
+            None => JsonRpcResponse::error(
+                req.id,
+                ErrorCode::METHOD_NOT_FOUND,
+                format!("Tool not found: {}", tool_name),
+                None,
+            ),
         }
     }
 
@@ -114,7 +148,10 @@ impl McpServerImpl {
         }
     }
 
-    async fn handle_connection(mut reader: BufReader<tokio::net::TcpStream>, tools: Vec<Arc<dyn McpTool>>) {
+    async fn handle_connection(
+        mut reader: BufReader<tokio::net::TcpStream>,
+        tools: Vec<Arc<dyn McpTool>>,
+    ) {
         let mut line = String::new();
         loop {
             line.clear();
@@ -122,10 +159,18 @@ impl McpServerImpl {
                 Ok(0) => break,
                 Ok(_) => {
                     let request: Result<JsonRpcRequest, _> = serde_json::from_str(line.trim());
-                    let temp_server = McpServerImpl { tools: tools.clone(), addr: None };
+                    let temp_server = McpServerImpl {
+                        tools: tools.clone(),
+                        addr: None,
+                    };
                     let response = match request {
                         Ok(req) => temp_server.handle_request(req),
-                        Err(e) => JsonRpcResponse::error(None, ErrorCode::PARSE_ERROR, format!("Parse error: {}", e), None),
+                        Err(e) => JsonRpcResponse::error(
+                            None,
+                            ErrorCode::PARSE_ERROR,
+                            format!("Parse error: {}", e),
+                            None,
+                        ),
                     };
                     let response_bytes = format!("{}\n", serde_json::to_string(&response).unwrap());
                     if let Err(e) = reader.get_mut().write_all(response_bytes.as_bytes()).await {
@@ -156,7 +201,9 @@ impl Default for McpServerImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::{AggregateByHostTool, AggregateByPidTool, GetSessionTool, QuerySessionsTool};
+    use crate::tools::{
+        AggregateByHostTool, AggregateByPidTool, GetSessionTool, QuerySessionsTool,
+    };
     use flowlens_storage::InMemoryStorage;
 
     fn create_test_server() -> McpServerImpl {
@@ -215,7 +262,10 @@ mod tests {
         };
         let resp = server.handle_request(req);
         assert!(resp.error.is_some());
-        assert_eq!(resp.error.as_ref().unwrap().code, ErrorCode::METHOD_NOT_FOUND);
+        assert_eq!(
+            resp.error.as_ref().unwrap().code,
+            ErrorCode::METHOD_NOT_FOUND
+        );
     }
 
     #[test]
@@ -229,7 +279,10 @@ mod tests {
         };
         let resp = server.handle_request(req);
         assert!(resp.error.is_some());
-        assert_eq!(resp.error.as_ref().unwrap().code, ErrorCode::INVALID_REQUEST);
+        assert_eq!(
+            resp.error.as_ref().unwrap().code,
+            ErrorCode::INVALID_REQUEST
+        );
     }
 
     #[test]
@@ -270,7 +323,9 @@ mod tests {
         let resp = server.handle_request(req);
         assert!(resp.error.is_some());
         // Tool returns an error when session_id is missing
-        assert!(resp.error.as_ref().unwrap().code == ErrorCode::INVALID_PARAMS 
-            || resp.error.as_ref().unwrap().code == ErrorCode::INTERNAL_ERROR);
+        assert!(
+            resp.error.as_ref().unwrap().code == ErrorCode::INVALID_PARAMS
+                || resp.error.as_ref().unwrap().code == ErrorCode::INTERNAL_ERROR
+        );
     }
 }
