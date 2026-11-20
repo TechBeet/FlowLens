@@ -120,9 +120,9 @@ impl Default for BroadcastEventBus {
 impl EventBus for BroadcastEventBus {
     fn publish(&self, event: TrafficEvent) -> Result<(), EventBusError> {
         let start = std::time::Instant::now();
-        
+
         let row = TrafficRow::from_event(&event);
-        
+
         // Always update diagnostics first (evt_cnt and recent snapshot)
         // This ensures --status / --events reporting works correctly
         self.evt_cnt
@@ -139,7 +139,7 @@ impl EventBus for BroadcastEventBus {
                 guard.remove(0);
             }
         }
-        
+
         match self.sender.send(event) {
             Ok(receiver_count) => {
                 let elapsed = start.elapsed();
@@ -155,7 +155,10 @@ impl EventBus for BroadcastEventBus {
             }
             Err(_) => {
                 let elapsed = start.elapsed();
-                tracing::warn!("Failed to publish event: broadcast channel closed (latency: {:?})", elapsed);
+                tracing::warn!(
+                    "Failed to publish event: broadcast channel closed (latency: {:?})",
+                    elapsed
+                );
                 Err(EventBusError::ChannelClosed)
             }
         }
@@ -163,7 +166,7 @@ impl EventBus for BroadcastEventBus {
 
     fn subscribe(&self, filter: TrafficFilter) -> broadcast::Receiver<TrafficEvent> {
         let start = std::time::Instant::now();
-        
+
         // Register the filter for --filters reporting.
         // Poison-tolerant: recover the guard so filter bookkeeping survives.
         self.filters
@@ -259,10 +262,10 @@ mod tests {
     fn test_event_count_diagnostics() {
         let bus = BroadcastEventBus::new(16);
         assert_eq!(bus.event_count(), 0);
-        
+
         // Need a subscriber before publish (tokio broadcast returns Err when rx_cnt == 0)
         let _rx = bus.subscribe(TrafficFilter::default());
-        
+
         bus.publish(TrafficEvent::CaptureDropped {
             reason: "test".to_string(),
             count: 1,
@@ -276,10 +279,10 @@ mod tests {
         let bus = BroadcastEventBus::new(16);
         let events = bus.latest_events(20);
         assert!(events.is_empty());
-        
+
         // Need a subscriber before publish
         let _rx = bus.subscribe(TrafficFilter::default());
-        
+
         for i in 0..5u64 {
             let ev = TrafficEvent::ConnectionEstablished {
                 conn: crate::models::ConnectionKey {
