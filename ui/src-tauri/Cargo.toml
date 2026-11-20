@@ -25,4 +25,7 @@ image = "0.25"
 ts-rs = { version = "10", features = ["serde_json"], optional = true }
 
 [features]
+default = []
 typescript = ["ts-rs", "flowlens-core/typescript"]
+# Enable transparent (no-proxy) HTTPS interception via WinDivert.
+windivert = ["flowlens-capture/windivert"]
