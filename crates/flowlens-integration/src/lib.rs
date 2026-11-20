@@ -67,7 +67,7 @@ fn test_event_bus_publish_subscribe_flow() {
 #[test]
 fn test_event_bus_count_accuracy() {
     let bus = Arc::new(BroadcastEventBus::new(64));
-    
+
     for i in 0..20u64 {
         bus.publish(TrafficEvent::CaptureDropped {
             reason: format!("test {}", i),
