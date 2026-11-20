@@ -1378,6 +1378,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "etherparse"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54a48e7bdc36cdf86876a6890c0840957029374ea07f6697c96fa15898730375"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
 name = "event-listener"
 version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1473,6 +1482,8 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "windivert",
+ "windivert-sys",
 ]
 
 [[package]]
@@ -7158,6 +7169,28 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+
+[[package]]
+name = "windivert"
+version = "0.7.0-beta.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bbb7dcc054cce9781ee0d258fa4115182bdc3fc8706350476d4ce96206daed9"
+dependencies = [
+ "etherparse",
+ "thiserror 2.0.21",
+ "windivert-sys",
+ "windows",
+]
+
+[[package]]
+name = "windivert-sys"
+version = "0.11.0-beta.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2eace207a00d158e8340b0f9217f1f7e379eaedf364a21edb92109f0e8eb0778"
+dependencies = [
+ "cc",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "window-vibrancy"
