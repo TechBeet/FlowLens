@@ -2,6 +2,7 @@ use crate::proxy::ProxyRuntime;
 use flowlens_core::BroadcastEventBus;
 use flowlens_core::InterceptEngine;
 use flowlens_core::RewriteEngine;
+use flowlens_core::session_store::RingStore;
 use flowlens_core::TrafficEvent;
 use flowlens_core::TrafficStats;
 use flowlens_tls::{CaInfo, CaManager, DomainPolicy, InMemoryTlsEngine};
@@ -13,6 +14,8 @@ pub struct AppState {
     pub event_bus: Arc<BroadcastEventBus>,
     pub stats: Arc<Mutex<TrafficStats>>,
     pub events: Arc<Mutex<Vec<TrafficEvent>>>,
+    /// Persistent session store backing get_session_detail / query_sessions.
+    pub session_store: Arc<RingStore>,
     pub running: Arc<AtomicBool>,
     pub pump_task: Mutex<Option<JoinHandle<()>>>,
     pub proxy_task: Mutex<Option<JoinHandle<()>>>,
@@ -40,6 +43,7 @@ impl AppState {
             event_bus: Arc::new(event_bus),
             stats: Arc::new(Mutex::new(TrafficStats::default())),
             events: Arc::new(Mutex::new(Vec::new())),
+            session_store: Arc::new(RingStore::new(50_000)),
             running: Arc::new(AtomicBool::new(false)),
             pump_task: Mutex::new(None),
             proxy_task: Mutex::new(None),
