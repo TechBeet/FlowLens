@@ -50,10 +50,13 @@
     {/each}
     {#if filteredEvents.length === 0}
       <div class="empty-state">
+        <span class="empty-icon">{searchQuery.trim() ? '🔍' : '🌐'}</span>
         {#if searchQuery.trim()}
-          未匹配到事件
+          <p class="empty-title">未匹配到事件</p>
+          <p class="empty-desc">尝试调整搜索关键词</p>
         {:else}
-          暂无网络流量
+          <p class="empty-title">暂无网络流量</p>
+          <p class="empty-desc">开始捕获以查看网络流量</p>
         {/if}
       </div>
     {/if}
@@ -136,10 +139,35 @@
   }
 
   .empty-state {
-    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 40px 20px;
     text-align: center;
     color: var(--fg-dim);
     font-size: 13px;
+  }
+
+  .empty-state .empty-icon {
+    font-size: 40px;
+    line-height: 1;
+    opacity: 0.85;
+    margin-bottom: 6px;
+  }
+
+  .empty-state .empty-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .empty-state .empty-desc {
+    margin: 0;
+    font-size: 12px;
+    color: var(--fg-dim);
+    opacity: 0.8;
   }
 
   .clear-btn {
