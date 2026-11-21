@@ -12,6 +12,7 @@
     caStatus?: { installed: boolean; cn: string | null };
     oninstallca?: () => void;
     onuninstallca?: () => void;
+    onrefreshca?: () => void;
   }
 
   let {
@@ -53,7 +54,7 @@
     {#if caStatus.installed}
       <button class="ca-btn" onclick={() => onuninstallca?.()} title="卸载根 CA 证书">卸载</button>
     {:else}
-      <button class="ca-btn" onclick={() => oninstallca?.()} title="安装根 CA 证书以启用 HTTPS 解密">安装</button>
+      <button class="ca-btn" onclick={() => { oninstallca?.(); onrefreshca?.() }} title="安装根 CA 证书以启用 HTTPS 解密">安装</button>
     {/if}
   </div>
 
