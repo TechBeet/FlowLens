@@ -1,5 +1,6 @@
 use super::state::AppState;
 use flowlens_capture::Engine;
+use flowlens_core::session_store::SessionStore;
 use flowlens_core::{EventBus, TrafficEvent, TrafficFilter, TrafficRow};
 use flowlens_tls::cert_store;
 use flowlens_tls::CaManager;
@@ -158,6 +159,7 @@ pub async fn start_capture(
     let running = state.running.clone();
     let stats = state.stats.clone();
     let events_store = state.events.clone();
+    let session_store = state.session_store.clone();
     let emit_handle = app_handle.clone();
 
     // Spawn a tokio task that pumps the event bus and emits to the frontend.
@@ -178,6 +180,11 @@ pub async fn start_capture(
                     };
                     if let Ok(mut events) = events_store.lock() {
                         events.push(event.clone());
+                    }
+                    // Append to the persistent session store so get_session_detail /
+                    // query_sessions return real data.
+                    if let Err(e) = session_store.append(event.clone()) {
+                        tracing::debug!(error = %e, "session_store append failed");
                     }
                     if let Some(row) = TrafficRow::from_event(&event) {
                         counter += 1;
@@ -1232,14 +1239,13 @@ pub async fn generate_ca(state: State<'_, AppState>, cn: String) -> Result<Strin
 }
 
 /// Return the full session detail (serialised TrafficSession) for the given id.
-/// Placeholder until persistent session storage is wired into AppState.
 #[tauri::command]
 pub async fn get_session_detail(
     state: State<'_, AppState>,
     session_id: u64,
 ) -> Result<Option<serde_json::Value>, String> {
-    let _ = (state, session_id);
-    Ok(None)
+    let detail = state.session_store.get(session_id).map_err(|e| e.to_string())?;
+    Ok(detail.map(|d| serde_json::to_value(&d).unwrap_or_default()))
 }
 
 /// Query stored sessions with optional filters and pagination.
@@ -1249,26 +1255,27 @@ pub async fn query_sessions(
     query: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let pid = query.get("pid").and_then(|v| v.as_u64()).map(|v| v as u32);
-    let host = query
-        .get("host")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let protocol = query
-        .get("protocol")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let host = query.get("host").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let protocol = query.get("protocol").and_then(|v| v.as_str()).map(|s| s.to_string());
+    // `Query::limit` is `u32` (clamped to 1..=500 by the store) and
+    // `Query::offset` is `u64`. Normalise the JSON payload here so the store
+    // never has to deal with `Option<usize>`.
     let limit = query
         .get("limit")
         .and_then(|v| v.as_u64())
-        .map(|v| v as usize);
-    let offset = query
-        .get("offset")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as usize);
+        .map(|v| v as u32)
+        .unwrap_or(50);
+    let offset = query.get("offset").and_then(|v| v.as_u64()).unwrap_or(0);
 
-    let sessions = state.intercept.list_paused().await; // placeholder; use session manager when wired
-    let _ = (pid, host, protocol, limit, offset, sessions);
-    Ok(serde_json::json!({ "sessions": [], "total": 0 }))
+    let q = flowlens_core::session_store::Query {
+        pid,
+        host,
+        protocol,
+        limit,
+        offset,
+    };
+    let result = state.session_store.query(q).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "sessions": result.sessions, "total": result.total }))
 }
 
 /// Delete all captured sessions.
