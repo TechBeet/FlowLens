@@ -165,7 +165,7 @@ import { filterEvents } from "./lib/composables";
         selectedDevice = devs[0];
       }
     } catch (e) {
-      addLog(`加载设备列表失败�?{e}`);
+      addLog(`加载设备列表失败：{e}`);
     }
   }
 
@@ -396,6 +396,7 @@ import { filterEvents } from "./lib/composables";
       bind:selectedEvent
       onreplay={(sid) => handleReplay(sid, 0, {})}
       onbatchreplay={handleBatchReplay}
+      onStartCapture={startCapture}
     />
     <div class="right-column">
       <DetailPanel event={selectedEvent} onreplay={handleReplay} />
