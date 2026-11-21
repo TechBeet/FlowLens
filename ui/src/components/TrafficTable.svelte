@@ -7,11 +7,13 @@
     selectedEvent = $bindable<TrafficEvent | null>(null),
     onreplay,
     onbatchreplay,
+    onStartCapture,
   }: {
     events?: TrafficEvent[];
     selectedEvent?: TrafficEvent | null;
     onreplay?: (sessionId: number, delayMs: number, headers: Record<string, string>) => void;
     onbatchreplay?: (sessionIds: number[], delayMs: number) => void;
+    onStartCapture?: () => void;
   } = $props();
 
   let selectedIds = $state<string[]>([]);
@@ -313,7 +315,12 @@
       </tbody>
     </table>
   {:else}
-    <div class="empty-state">No traffic events found</div>
+    <div class="empty-state">
+      <span class="empty-icon">🌐</span>
+      <p class="empty-title">No traffic events found</p>
+      <p class="empty-desc">开始捕获网络流量后，这里将实时显示请求与响应。</p>
+      <button class="start-capture-btn" onclick={onStartCapture}>开始捕获</button>
+    </div>
   {/if}
 
   {#if showContextMenu && contextMenuEvent}
@@ -387,9 +394,62 @@
   }
 
   .empty-state {
-    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 64px 24px;
     text-align: center;
     color: var(--fg-dim);
+  }
+
+  .empty-state .empty-icon {
+    font-size: 48px;
+    line-height: 1;
+    margin-bottom: 8px;
+    opacity: 0.85;
+  }
+
+  .empty-state .empty-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .empty-state .empty-desc {
+    margin: 0;
+    max-width: 360px;
+    font-size: 12px;
+    color: var(--fg-dim);
+    line-height: 1.5;
+  }
+
+  .start-capture-btn {
+    margin-top: 16px;
+    padding: 8px 18px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: filter 0.15s ease;
+  }
+
+  .start-capture-btn:hover {
+    filter: brightness(1.12);
+  }
+
+  .start-capture-btn:active {
+    filter: brightness(0.9);
+  }
+
+  .start-capture-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .column-config {
