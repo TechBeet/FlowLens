@@ -278,8 +278,21 @@ import type {
     if (enabled) void loadPersistentMax();
   }
 
-  function handleSave() {
-    onclose?.();
+  let settingsStatus = $state<string | null>(null);
+
+  async function persistSettings() {
+    try {
+      await api.saveSettings({
+        capture: { backend: "mock", filter: "all", auto_start: false },
+        highlight_rules: [],
+        responder_rules: [],
+        filter_profiles: [],
+        theme: themePreference,
+      });
+      settingsStatus = "设置已保存";
+    } catch (e) {
+      settingsStatus = `保存失败：${e}`;
+    }
   }
 </script>
 
@@ -451,6 +464,14 @@ import type {
                 </div>
               {/if}
             </div>
+
+          <div class="settings-group">
+            <h3>持久化</h3>
+            <div class="setting-row">
+              <button class="btn btn-primary" onclick={persistSettings}>保存设置到磁盘</button>
+              {#if settingsStatus}<span class="muted">{settingsStatus}</span>{/if}
+            </div>
+          </div>
 
         {:else if activeTab === "shortcuts"}
           <div class="shortcuts-editor">
