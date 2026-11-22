@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use hpack::Decoder;
+use hpack_patched::Decoder;
 
 const FRAME_DATA: u8 = 0x00;
 const FRAME_HEADERS: u8 = 0x01;
