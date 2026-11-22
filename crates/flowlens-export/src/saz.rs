@@ -22,7 +22,7 @@ impl SazImporter {
 
         let mut client_indices: Vec<usize> = Vec::new();
         for i in 0..archive.len() {
-            let name = archive.by_index(i)?.name().to_string();
+            let name = archive.by_index(i)?.name()?.to_string();
             if name.starts_with("raw/") && name.ends_with("_c.txt") {
                 client_indices.push(i);
             }
@@ -32,7 +32,7 @@ impl SazImporter {
         let mut sessions = Vec::with_capacity(client_indices.len());
 
         for &idx in &client_indices {
-            let client_name = archive.by_index(idx)?.name().to_string();
+            let client_name = archive.by_index(idx)?.name()?.to_string();
             let mut client_raw = String::new();
             {
                 let mut entry = archive.by_index(idx)?;
@@ -44,7 +44,7 @@ impl SazImporter {
             let server_name = client_name.replace("_c.txt", "_s.txt");
             let mut resp_raw = String::new();
             for i in 0..archive.len() {
-                if archive.by_index(i)?.name() == server_name {
+                if archive.by_index(i)?.name()? == server_name {
                     let mut entry = archive.by_index(i)?;
                     entry.read_to_string(&mut resp_raw)?;
                     break;

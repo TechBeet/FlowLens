@@ -5,7 +5,7 @@
 //! - `SessionDetail` - full session representation (ADR 0010 §9.3)
 //! - `Query` / `QueryResult` - pagination and filtering
 
-use crate::models::{ConnectionKey, GrpcCall, HttpRequest, HttpResponse, ProcessInfo, SessionId, SseEvent, TlsSession, TrafficEvent, WebSocketFrame};
+use crate::models::{ConnectionKey, GrpcCall, HttpRequest, HttpResponse, ProcessInfo, SseEvent, TlsSession, TrafficEvent, WebSocketFrame};
 use serde::{Deserialize, Serialize};
 
 /// Store-level errors (ADR 0010 §8.2).
