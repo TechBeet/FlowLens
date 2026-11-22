@@ -9,7 +9,7 @@
   let { event = null, onreplay }: Props = $props();
 
   let activeTab = $state(0);
-  const tabs = ["Headers", "Request Body", "Response Body", "Timing", "TLS", "Process"];
+  const tabs = ["Headers", "Request Body", "Response Body", "Timing", "TLS", "Process", "Raw"];
 
   // --- Q7: session replay configuration ---
   let replayDelayMs = $state<number>(0);
@@ -43,7 +43,7 @@
   }
 
   // Lazy-loaded body content — only populated once its tab is first opened.
-  let lazyBodies = $state<{ request?: string | null; response?: string | null }>({});
+  let lazyBodies = $state<{ request?: string | null; response?: string | null; raw?: string | null }>({});
 
   function formatHeaders(headers: Record<string, string> | undefined): string {
     if (!headers || Object.keys(headers).length === 0) {
@@ -98,12 +98,31 @@
     return `=== Request Headers ===\n${formatHeaders(ev.requestHeaders)}\n\n=== Response Headers ===\n${formatHeaders(ev.responseHeaders)}`;
   }
 
+  function formatRaw(ev: UiEvent): string {
+    const lines: string[] = [];
+    lines.push("=== REQUEST ===");
+    if (ev.method) lines.push(`${ev.method} ${ev.url || ""} HTTP/1.1`);
+    lines.push(formatHeaders(ev.requestHeaders));
+    if (ev.requestBody) lines.push("");
+    if (ev.requestBody) lines.push(ev.requestBody);
+    lines.push("");
+    lines.push("=== RESPONSE ===");
+    if (ev.status) lines.push(`HTTP/1.1 ${ev.status}`);
+    lines.push(formatHeaders(ev.responseHeaders));
+    if (ev.responseBody) lines.push("");
+    if (ev.responseBody) lines.push(ev.responseBody);
+    return lines.join("\n");
+  }
+
   function ensureLazyBodies(ev: UiEvent, tabIndex: number) {
     if (tabIndex === 1 && !lazyBodies.request) {
       lazyBodies.request = formatBody(ev.requestBody);
     }
     if (tabIndex === 2 && !lazyBodies.response) {
       lazyBodies.response = formatBody(ev.responseBody);
+    }
+    if (tabIndex === 6 && !lazyBodies.raw) {
+      lazyBodies.raw = formatRaw(ev);
     }
   }
 </script>
@@ -183,6 +202,8 @@
         <pre class="event-json">{formatTLS(event)}</pre>
       {:else if activeTab === 5}
         <pre class="event-json">{formatProcess(event)}</pre>
+      {:else if activeTab === 6}
+        <pre class="event-json">{lazyBodies.raw ?? formatRaw(event)}</pre>
       {/if}
     </div>
   </div>
