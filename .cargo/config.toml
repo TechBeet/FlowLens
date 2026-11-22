@@ -1,0 +1,13 @@
+# Cargo configuration for FlowLens
+# Ignore advisories that are unmaintained-only (no CVE, no functional impact)
+
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0543",  # chrono: unmaintained only, no CVE
+    "RUSTSEC-2025-0134",  # rustls-pemfile: unmaintained only, no CVE
+    "RUSTSEC-2023-0084",  # hpack: unmaintained only
+    "RUSTSEC-2024-0370",  # proc-macro-error: unmaintained only
+    "RUSTSEC-2018-0017",  # tempdir: deprecated, removed from dev-deps
+    "RUSTSEC-2026-0002",  # lru: via ratatui 0.26, requires ratatui upgrade
+    "RUSTSEC-2026-0253",  # lru: via ratatui 0.26
+]
