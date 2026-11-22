@@ -202,7 +202,7 @@ impl Default for McpServerImpl {
 mod tests {
     use super::*;
     use crate::tools::{
-        AggregateByHostTool, AggregateByPidTool, GetSessionTool, QuerySessionsTool,
+        GetCaptureStatusTool, GetSessionStatsTool, GetTransactionTool, McpTool,
     };
     use flowlens_storage::InMemoryStorage;
 
@@ -210,10 +210,9 @@ mod tests {
         let storage = Arc::new(InMemoryStorage::new());
         let mut server = McpServerImpl::new();
 
-        server.register_tool(Arc::new(QuerySessionsTool::new(storage.clone())));
-        server.register_tool(Arc::new(GetSessionTool::new(storage.clone())));
-        server.register_tool(Arc::new(AggregateByHostTool::new(storage.clone())));
-        server.register_tool(Arc::new(AggregateByPidTool::new(storage.clone())));
+server.register_tool(Arc::new(GetCaptureStatusTool::new(storage.clone())));
+        server.register_tool(Arc::new(GetSessionStatsTool::new(storage.clone())));
+        server.register_tool(Arc::new(GetTransactionTool::new(storage.clone())));
 
         server
     }
@@ -248,7 +247,7 @@ mod tests {
         assert!(resp.result.is_some());
         let result = resp.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 3);
     }
 
     #[test]
@@ -292,7 +291,7 @@ mod tests {
             jsonrpc: "2.0".to_string(),
             id: Some(serde_json::json!(5)),
             method: "tools/call".to_string(),
-            params: Some(serde_json::json!({"name": "query_sessions", "arguments": {"limit": 10}})),
+            params: Some(serde_json::json!({"name": "get_capture_status", "arguments": {}})),
         };
         let resp = server.handle_request(req);
         assert!(resp.result.is_some());
@@ -305,7 +304,7 @@ mod tests {
             jsonrpc: "2.0".to_string(),
             id: Some(serde_json::json!(6)),
             method: "tools/call".to_string(),
-            params: Some(serde_json::json!({"name": "aggregate_by_host", "arguments": {}})),
+            params: Some(serde_json::json!({"name": "get_session_stats", "arguments": {}})),
         };
         let resp = server.handle_request(req);
         assert!(resp.result.is_some());
@@ -318,7 +317,7 @@ mod tests {
             jsonrpc: "2.0".to_string(),
             id: Some(serde_json::json!(7)),
             method: "tools/call".to_string(),
-            params: Some(serde_json::json!({"name": "get_session"})),
+            params: Some(serde_json::json!({"name": "get_transaction"})),
         };
         let resp = server.handle_request(req);
         assert!(resp.error.is_some());
