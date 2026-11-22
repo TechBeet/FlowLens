@@ -18,5 +18,8 @@ glob = "0.3"
 regex-lite = "0.1"
 ts-rs = { version = "10", features = ["serde_json"], optional = true }
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 typescript = ["ts-rs"]
