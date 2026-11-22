@@ -398,6 +398,7 @@ fn test_filter_subscription_tracking() {
 fn test_real_capture_initialization() {
     let eng = flowlens_capture::Engine::auto();
     match &eng {
+        flowlens_capture::Engine::Driver(_) => {}
         flowlens_capture::Engine::Pcap(pc) => {
             tracing::info!(
                 "Real Npcap capture initialised on device: {}",
@@ -417,6 +418,7 @@ fn test_real_capture_initialization() {
 fn test_real_capture_with_real_capture_constructor() {
     let eng = flowlens_capture::Engine::with_real_capture();
     match &eng {
+        flowlens_capture::Engine::Driver(_) => {}
         flowlens_capture::Engine::Pcap(_) => {}
         flowlens_capture::Engine::Mock(_) => {}
     }
@@ -433,6 +435,7 @@ fn test_real_capture_start_stop_lifecycle() {
     let start_result = eng.start();
 
     match &eng {
+        flowlens_capture::Engine::Driver(_) => {}
         flowlens_capture::Engine::Pcap(_) => {
             // On Windows with Npcap, start should succeed.
             // Without Npcap the auto engine will be Mock which also starts.
@@ -496,6 +499,7 @@ fn test_end_to_end_real_traffic() {
         flowlens_capture::Engine::Mock(_) => {
             panic!("Test requires real Npcap capture; mock mode detected");
         }
+        flowlens_capture::Engine::Driver(_) => {}
         flowlens_capture::Engine::Pcap(_) => {}
     }
 
