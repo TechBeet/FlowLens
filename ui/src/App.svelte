@@ -7,6 +7,7 @@
   import Header from "./components/Header.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import DetailPanel from "./components/DetailPanel.svelte";
+  import ChartsPanel from "./components/ChartsPanel.svelte";
   import ReplayHistory from "./components/ReplayHistory.svelte";
   import TrafficTable from "./components/TrafficTable.svelte";
   import SniDomainSelector from "./components/SniDomainSelector.svelte";
@@ -127,6 +128,7 @@ import { filterEvents } from "./lib/composables";
 
   let currentTheme = $state<"dark" | "light">("dark");
   let showSettings = $state(false);
+  let showCharts = $state(false);
   let isLoading = $state(false);
   let error = $state<string | null>(null);
   let logEntries = $state<string[]>([]);
@@ -399,8 +401,16 @@ import { filterEvents } from "./lib/composables";
       onStartCapture={startCapture}
     />
     <div class="right-column">
-      <DetailPanel event={selectedEvent} onreplay={handleReplay} />
-      <ReplayHistory entries={replayHistory} onclear={clearReplayHistory} />
+      <div class="right-tabs">
+        <button class="right-tab" class:active={!showCharts} onclick={() => (showCharts = false)}>详情</button>
+        <button class="right-tab" class:active={showCharts} onclick={() => (showCharts = true)}>图表</button>
+      </div>
+      {#if showCharts}
+        <ChartsPanel events={events} />
+      {:else}
+        <DetailPanel event={selectedEvent} onreplay={handleReplay} />
+        <ReplayHistory entries={replayHistory} onclear={clearReplayHistory} />
+      {/if}
     </div>
   </div>
 
@@ -531,4 +541,25 @@ import { filterEvents } from "./lib/composables";
   color: var(--err);
   font-weight: 600;
 }
+  .right-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .right-tab {
+    flex: 1;
+    padding: 8px;
+    background: transparent;
+    border: none;
+    color: var(--fg-dim);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .right-tab.active {
+    color: var(--accent);
+    border-bottom: 2px solid var(--accent);
+  }
+  .right-tab:hover {
+    background: var(--hover);
+  }
 </style>
