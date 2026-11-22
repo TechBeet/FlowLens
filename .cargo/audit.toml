@@ -1,0 +1,4 @@
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0543",  # chrono: unmaintained only (no CVE); used by flowlens-capture and flowlens-export
+]
