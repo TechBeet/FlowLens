@@ -494,8 +494,8 @@ mod tests {
     ///
     /// The storage engine owns a dedicated runtime, so these tests must run
     /// outside of any ambient Tokio runtime (i.e. plain `#[test]`).
-    fn temp_sqlite() -> (SqliteStorage, tempdir::TempDir) {
-        let dir = tempdir::TempDir::new("flowlens_storage_test").unwrap();
+    fn temp_sqlite() -> (SqliteStorage, tempfile::TempDir) {
+        let dir = tempfile::Builder::new().prefix("flowlens_storage_test").tempdir().unwrap();
         let path = dir.path().join("test.db");
         let storage = tokio::runtime::Builder::new_current_thread()
             .enable_all()

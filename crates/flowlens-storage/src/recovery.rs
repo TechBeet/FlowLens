@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_and_recover() {
-        let dir = tempdir::TempDir::new("recovery_test").unwrap();
+        let dir = tempfile::Builder::new().prefix("recovery_test").tempdir().unwrap();
         let db = dir.path().join("test.db");
         let store = crate::InMemoryStorage::new();
         let mgr = RecoveryManager::new(store, &db);
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn test_recover_empty_wal() {
-        let dir = tempdir::TempDir::new("recovery_empty").unwrap();
+        let dir = tempfile::Builder::new().prefix("recovery_empty").tempdir().unwrap();
         let db = dir.path().join("test.db");
         let store = crate::InMemoryStorage::new();
         let mgr = RecoveryManager::new(store, &db);
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn test_backup_roundtrip() {
-        let dir = tempdir::TempDir::new("recovery_backup").unwrap();
+        let dir = tempfile::Builder::new().prefix("recovery_backup").tempdir().unwrap();
         let db = dir.path().join("test.db");
         let snap = dir.path().join("snapshot.jsonl");
         let store = crate::InMemoryStorage::new();
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn test_truncate_wal() {
-        let dir = tempdir::TempDir::new("recovery_trunc").unwrap();
+        let dir = tempfile::Builder::new().prefix("recovery_trunc").tempdir().unwrap();
         let db = dir.path().join("test.db");
         let store = crate::InMemoryStorage::new();
         let mgr = RecoveryManager::new(store, &db);
