@@ -8,6 +8,7 @@ pub mod event_bus;
 pub mod filter;
 pub mod intercept;
 pub mod models;
+pub mod responder;
 pub mod rewrite;
 pub mod session;
 pub mod session_store;
@@ -17,6 +18,10 @@ pub use errors::CoreError;
 pub use event_bus::{BroadcastEventBus, EventBus, EventBusError};
 pub use intercept::*;
 pub use models::*;
+pub use responder::*;
 pub use rewrite::*;
 pub use session::SessionManager;
 pub use session_store::{SessionStore, RingStore, SessionDetail, SessionSummary, Query, QueryResult, StoreError};
+pub mod settings;
+
+pub use settings::Settings;
