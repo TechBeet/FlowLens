@@ -1,4 +1,4 @@
-// FlowLens Driver INF file
+﻿; FlowLens WFP Callout Driver INF
 [Version]
 Signature="$WINDOWS NT$"
 Class=System
@@ -8,11 +8,10 @@ DriverVer=10/14/2026,0.1.0.0
 CatalogFile=flowlens.cat
 
 [DestinationDirs]
-DefaultDestDir = 13
-FlowlensFile.CopyDir = 12
+DefaultDestDir = 12
 
 [SourceDisksNames]
-1=%DiskName%,,
+1=%DiskName%,,,
 
 [SourceDisksFiles]
 flowlens.sys=1
@@ -21,12 +20,23 @@ flowlens.sys=1
 %ManufacturerName%=Standard,NT$ARCH$
 
 [Standard.NT$ARCH$]
-%Flowlens.DeviceDesc%=Flowlens_Device, root\flowlens\0000
+%Flowlens.DeviceDesc%=Flowlens_Device, root\flowlens
 
 [Flowlens_Device.NT]
 CopyFiles=FlowlensFile.CopyDir
+AddReg=Flowlens_AddReg
 
-[Flowlens.Device.NT.Services]
+[FlowlensFile.CopyDir]
+flowlens.sys
+
+[Flowlens_Device.NT.HW]
+AddReg=Flowlens_AddReg
+
+[Flowlens_AddReg]
+HKR,Parameters,StartType,0x00010001,3
+HKR,Parameters,ErrorControl,0x00010001,1
+
+[Flowlens_Device.NT.Services]
 AddService = flowlens, 0x00000002, Flowlens_Service_Inst
 
 [Flowlens_Service_Inst]
