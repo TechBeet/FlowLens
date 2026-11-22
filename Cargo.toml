@@ -13,6 +13,7 @@ members = [
     "crates/flowlens-mcp",
     "crates/flowlens-protocol",
     "crates/flowlens-replay",
+    "crates/flowlens-service",
     "crates/flowlens-storage",
     "crates/flowlens-tls",
     "crates/flowlens-ui",
