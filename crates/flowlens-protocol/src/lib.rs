@@ -7,12 +7,13 @@
 //! - SSE event parser
 
 pub mod grpc;
+pub mod http1_body;
 pub mod http2;
-
-use std::collections::HashMap;
+pub mod sse;
+pub mod websocket;
 
 use flowlens_core::models::{
-    HttpRequest, HttpResponse, HttpVersion, SseEvent, WebSocketFrame, WsOpcode,
+    HttpRequest, HttpResponse, HttpVersion, SseEvent, WebSocketFrame,
 };
 
 /// Protocol type
@@ -73,13 +74,19 @@ impl Http1Parser {
                     )
                 })
                 .collect();
+
+            // Parse body using http1_body module
+            let header_end = find_header_end(data)?;
+            let body_data = &data[header_end..];
+            let body = http1_body::parse_request_body(body_data, &hdrs);
+
             Some(HttpRequest {
                 method,
                 url: path.clone(),
                 path,
                 request_line_version: version,
                 headers: hdrs,
-                body: None,
+                body,
                 body_size: 0,
                 timestamp: 0,
             })
@@ -107,18 +114,22 @@ impl Http1Parser {
                     )
                 })
                 .collect();
+            // Parse status text based on code
             let st = match code {
                 200 => "OK",
                 404 => "Not Found",
                 500 => "Error",
                 _ => "Unknown",
             };
+            let header_end = find_header_end(data)?;
+            let body_data = &data[header_end..];
+            let body = http1_body::parse_response_body(body_data, &hdrs);
             Some(HttpResponse {
                 status_code: code as u16,
                 status_text: st.to_string(),
                 version,
                 headers: hdrs,
-                body: None,
+                body,
                 body_size: 0,
                 timestamp: 0,
             })
@@ -128,75 +139,27 @@ impl Http1Parser {
     }
 
     pub fn parse_websocket_frame(&self, data: &[u8]) -> Option<WebSocketFrame> {
-        if data.len() < 2 {
-            return None;
-        }
-        let opcode = match data[0] & 0x0F {
-            0x1 => WsOpcode::Text,
-            0x2 => WsOpcode::Binary,
-            0x8 => WsOpcode::Close,
-            0x9 => WsOpcode::Ping,
-            0xA => WsOpcode::Pong,
-            _ => return None,
-        };
-        let mask_bit = (data[1] & 0x80) != 0;
-        let plen = (data[1] & 0x7F) as usize;
-        let off = if data.len() >= 4 && plen == 126 { 4 } else { 2 };
-        let mask_off = if mask_bit { off + 4 } else { off };
-        let plen = plen.min(data.len().saturating_sub(mask_off));
-        Some(WebSocketFrame {
-            opcode,
-            payload: data.get(mask_off..mask_off + plen).unwrap_or(&[]).to_vec(),
-            payload_size: plen,
-            is_masked: mask_bit,
-            timestamp: 0,
-        })
+        websocket::parse_websocket_frame(data).map(|(f, _)| f)
     }
 
     pub fn parse_sse_events(&self, data: &[u8]) -> Vec<SseEvent> {
-        let text = match std::str::from_utf8(data) {
-            Ok(t) => t,
-            Err(_) => return Vec::new(),
-        };
-        let mut events = Vec::new();
-        let mut cur: HashMap<String, String> = HashMap::new();
-        for line in text.lines() {
-            if line.is_empty() {
-                if let Some(d) = cur.get("data") {
-                    events.push(SseEvent {
-                        event_type: cur.get("event").cloned(),
-                        id: cur.get("id").cloned(),
-                        data: d.clone(),
-                        retry_ms: None,
-                        timestamp: 0,
-                    });
-                }
-                cur.clear();
-            } else if let Some((k, v)) = line.split_once(':') {
-                cur.insert(k.trim().to_string(), v.trim().to_string());
-            }
-        }
-        if !cur.is_empty() {
-            if let Some(d) = cur.get("data") {
-                events.push(SseEvent {
-                    event_type: cur.get("event").cloned(),
-                    id: cur.get("id").cloned(),
-                    data: d.clone(),
-                    retry_ms: None,
-                    timestamp: 0,
-                });
-            }
-        }
-        events
+        sse::parse_sse_events(data)
     }
 
     pub fn detect_protocol(&self, data: &[u8]) -> ProtocolKind {
         if let Ok(s) = std::str::from_utf8(data) {
-            if s.contains("Upgrade: websocket") || s.contains("upgrade: websocket") {
+            let lower = s.to_lowercase();
+            if lower.contains("upgrade: websocket") {
                 return ProtocolKind::WebSocket;
             }
-            if s.contains("text/event-stream") {
+            if lower.contains("text/event-stream") {
                 return ProtocolKind::Sse;
+            }
+            if lower.contains("content-type: application/grpc") {
+                return ProtocolKind::Grpc;
+            }
+            if lower.starts_with("pri * http/2.0") || lower.contains("http/2") {
+                return ProtocolKind::Http2;
             }
         }
         ProtocolKind::Http1
@@ -245,7 +208,7 @@ mod tests {
         let parser = Http1Parser::new();
         let data = vec![0x81, 0x05, b'h', b'e', b'l', b'l', b'o'];
         let f = parser.parse_websocket_frame(&data).unwrap();
-        assert_eq!(f.opcode, WsOpcode::Text);
+        assert_eq!(f.opcode, flowlens_core::models::WsOpcode::Text);
         assert_eq!(f.payload_size, 5);
     }
 
@@ -257,4 +220,18 @@ mod tests {
             ProtocolKind::WebSocket
         );
     }
+}
+
+fn find_header_end(data: &[u8]) -> Option<usize> {
+    for i in 0..data.len().saturating_sub(3) {
+        if data[i] == b'\r' && data[i + 1] == b'\n' && data[i + 2] == b'\r' && data[i + 3] == b'\n' {
+            return Some(i + 4);
+        }
+    }
+    for i in 0..data.len().saturating_sub(1) {
+        if data[i] == b'\n' && data[i + 1] == b'\n' {
+            return Some(i + 2);
+        }
+    }
+    None
 }
