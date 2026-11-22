@@ -33,11 +33,11 @@ fn server_cfg_for(engine: &InMemoryTlsEngine, domain: &str) -> rustls::ServerCon
 }
 
 fn client_cfg_trusting_ca(engine: &InMemoryTlsEngine) -> rustls::ClientConfig {
+use rustls_pki_types::pem::PemObject;
     let ca_pem = engine.ca_pem().unwrap();
     let mut store = rustls::RootCertStore::empty();
-    for c in rustls_pemfile::certs(&mut ca_pem.as_bytes()).flatten() {
-        store.add(c).unwrap();
-    }
+    let cert = rustls_pki_types::CertificateDer::from_pem_slice(ca_pem.as_bytes()).unwrap();
+    store.add(cert).unwrap();
     rustls::ClientConfig::builder()
         .with_root_certificates(store)
         .with_no_client_auth()
@@ -140,7 +140,12 @@ async fn test_tls_termination() {
             String::from_utf8_lossy(&buf[..n]).to_string()
         }
     });
-    let (srv_msg, cli_msg) = tokio::join!(srv, cli);
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        async { tokio::join!(srv, cli) },
+    )
+    .await;
+    let (srv_msg, cli_msg) = result.expect("test_tls_termination timed out after 10s");
     assert_eq!(srv_msg.unwrap(), "ping");
     assert_eq!(cli_msg.unwrap(), "pong");
 }
@@ -180,7 +185,12 @@ async fn test_plaintext_extraction() {
             String::from_utf8_lossy(&buf[..n]).to_string()
         }
     });
-    let (srv_recv, cli_echo) = tokio::join!(srv, cli);
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        async { tokio::join!(srv, cli) },
+    )
+    .await;
+    let (srv_recv, cli_echo) = result.expect("test_plaintext_extraction timed out after 10s");
     assert_eq!(srv_recv.unwrap(), std::str::from_utf8(msg).unwrap());
     assert_eq!(cli_echo.unwrap(), std::str::from_utf8(msg).unwrap());
     let conn_key = make_conn_key();
