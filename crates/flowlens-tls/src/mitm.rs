@@ -4,6 +4,7 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+use rustls_pki_types::pem::PemObject;
 use rustls::{ClientConfig, ServerConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -89,7 +90,7 @@ pub fn extract_sni(data: &[u8]) -> Option<String> {
 pub fn build_server_config(cert_pem: &str, key_pem: &str) -> Result<ServerConfig, TlsError> {
     let mut cert_reader = Cursor::new(cert_pem);
     let mut cert_chain: Vec<CertificateDer<'static>> = Vec::new();
-    for item in rustls_pemfile::certs(&mut cert_reader) {
+    for item in rustls_pki_types::CertificateDer::pem_slice_iter(cert_pem.as_bytes()) {
         let cert = item.map_err(|_| TlsError::CertGeneration("failed to parse cert".into()))?;
         cert_chain.push(cert.into_owned());
     }
@@ -99,9 +100,8 @@ pub fn build_server_config(cert_pem: &str, key_pem: &str) -> Result<ServerConfig
 
     let mut key_reader = Cursor::new(key_pem);
     let mut keys = Vec::new();
-    for item in rustls_pemfile::pkcs8_private_keys(&mut key_reader) {
-        let key =
-            item.map_err(|_| TlsError::CertGeneration("failed to parse private key".into()))?;
+    for item in rustls_pki_types::PrivateKeyDer::pem_slice_iter(key_pem.as_bytes()) {
+        let key = item.map_err(|_| TlsError::CertGeneration("failed to parse private key".into()))?;
         keys.push(key);
     }
     if keys.is_empty() {

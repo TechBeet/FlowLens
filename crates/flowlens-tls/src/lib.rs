@@ -19,6 +19,7 @@ use rcgen::{
     Certificate, CertificateParams, DistinguishedName, DnType, KeyPair, PKCS_ECDSA_P256_SHA256,
 };
 use serde::Serialize;
+use rustls_pki_types::pem::PemObject;
 use sha2::{Digest, Sha256};
 
 pub trait CaManager: Send + Sync {
@@ -439,10 +440,7 @@ impl MitmProxy for InMemoryTlsEngine {
 }
 /// SHA-256 fingerprint (lowercase hex) of the first certificate in a PEM bundle.
 fn pem_fingerprint_sha256(cert_pem: &str) -> Result<String, TlsError> {
-    let mut reader = std::io::Cursor::new(cert_pem.as_bytes());
-    let der = rustls_pemfile::certs(&mut reader)
-        .next()
-        .ok_or_else(|| TlsError::CertGeneration("no CERTIFICATE block in PEM".into()))?
+    let der = rustls_pki_types::CertificateDer::from_pem_slice(cert_pem.as_bytes())
         .map_err(|e| TlsError::CertGeneration(format!("invalid certificate PEM: {e}")))?;
     Ok(format!("{:x}", Sha256::digest(&der)))
 }
