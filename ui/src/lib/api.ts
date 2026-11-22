@@ -294,3 +294,19 @@ export async function getEventMax(): Promise<number> {
   }
 }
 
+/// Persisted application settings (capture backend, theme, rules, filter profiles).
+export interface AppSettings {
+  capture: { backend: string; filter: string; auto_start: boolean };
+  highlight_rules: unknown[];
+  responder_rules: unknown[];
+  filter_profiles: unknown[];
+  theme: string;
+}
+
+export async function loadSettings(): Promise<AppSettings> {
+  return (await invoke<AppSettings>("load_settings")) as AppSettings;
+}
+
+export async function saveSettings(settings: AppSettings): Promise<void> {
+  await invoke("save_settings", { settings });
+}
