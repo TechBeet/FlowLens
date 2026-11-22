@@ -5,6 +5,10 @@
 //! - MockEngine for tests / systems without Npcap
 //! - Real WinDivert network layer capture (Phase 2+), falling back to mock
 //! - RawPacket abstraction and packet parsing helpers
+//! - WFP kernel driver interface (Phase 11+)
+
+pub mod driver;
+pub use driver::{DriverCaptureEngine, DriverFilter, DriverHandle, DriverStatus, DriverTrafficEvent};
 
 pub mod pcap;
 #[cfg(feature = "windivert")]
@@ -29,23 +33,34 @@ use flowlens_core::models::{
 
 /// Unified capture engine that auto-selects pcap or mock
 pub enum Engine {
+    Driver(DriverCaptureEngine),
     Pcap(PcapEngine),
     Mock(MockEngine),
 }
 
 impl Engine {
-    /// Auto-detect: use real Npcap if a device is available, else mock
+    /// Auto-detect: prefer WFP kernel driver, then Npcap, else mock
     pub fn auto() -> Self {
+        if DriverCaptureEngine::is_available() {
+            if let Some(eng) = DriverCaptureEngine::try_open() {
+                tracing::info!("Using FlowLens WFP kernel driver capture");
+                return Engine::Driver(eng);
+            }
+        }
         match PcapEngine::pick_device() {
             Some(device) => {
                 tracing::info!("Using real Npcap capture on device: {}", device);
                 Engine::Pcap(PcapEngine::new(device))
             }
             None => {
-                tracing::warn!("No Npcap device found, falling back to mock engine");
+                tracing::warn!("No capture backend found, falling back to mock engine");
                 Engine::Mock(MockEngine::new())
             }
         }
+    }
+
+    pub fn new_driver() -> Option<Self> {
+        DriverCaptureEngine::try_open().map(Engine::Driver)
     }
 
     pub fn new_pcap(device: impl Into<String>) -> Self {
@@ -66,6 +81,7 @@ impl Engine {
 
     fn running_flag(&self) -> &Arc<AtomicBool> {
         match self {
+            Engine::Driver(d) => &d.running,
             Engine::Pcap(p) => &p.running,
             Engine::Mock(m) => &m.running,
         }
@@ -73,6 +89,7 @@ impl Engine {
 
     pub fn start(&mut self) -> anyhow::Result<()> {
         match self {
+            Engine::Driver(d) => d.start(),
             Engine::Pcap(p) => p.start(),
             Engine::Mock(m) => m.start(),
         }
@@ -80,6 +97,7 @@ impl Engine {
 
     pub fn stop(&mut self) -> anyhow::Result<()> {
         match self {
+            Engine::Driver(d) => d.stop(),
             Engine::Pcap(p) => p.stop(),
             Engine::Mock(m) => m.stop(),
         }
@@ -87,6 +105,7 @@ impl Engine {
 
     pub fn is_running(&self) -> bool {
         match self {
+            Engine::Driver(d) => d.is_running(),
             Engine::Pcap(p) => p.is_running(),
             Engine::Mock(m) => m.is_running(),
         }
@@ -94,6 +113,7 @@ impl Engine {
 
     pub fn drain_packets(&self, limit: usize) -> Vec<RawPacket> {
         match self {
+            Engine::Driver(_) => Vec::new(),
             Engine::Pcap(p) => p.drain_packets(limit),
             Engine::Mock(m) => m.drain_packets(limit),
         }
@@ -714,6 +734,7 @@ mod tests {
         // Pcap or Mock depending on whether Npcap is present.
         let eng = Engine::with_real_capture();
         match eng {
+            Engine::Driver(_) => {}
             Engine::Pcap(_) => {}
             Engine::Mock(_) => {}
         }
