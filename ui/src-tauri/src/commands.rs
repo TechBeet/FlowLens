@@ -270,6 +270,10 @@ pub async fn start_capture(
         _ => Engine::auto(),
     };
     match engine {
+        Engine::Driver(_) => {
+            println!("FlowLens WFP driver engine selected");
+            flowlens_capture::spawn_engine_pump(engine, bus.clone());
+        }
         Engine::Pcap(_) => {
             println!("Npcap engine selected");
             flowlens_capture::spawn_engine_pump(engine, bus.clone());
@@ -1651,4 +1655,27 @@ mod tests {
         let mut value = serde_json::json!({ "id": "a", "priority": 1.5 });
         assert!(normalize_rewrite_priority(&mut value).is_err());
     }
+}
+// ---------- Settings persistence (settings.json under %APPDATA%\FlowLens) ----------
+
+fn settings_file_path() -> PathBuf {
+    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
+    let mut p = PathBuf::from(base);
+    p.push("FlowLens");
+    p.push("settings.json");
+    p
+}
+
+/// Load the persisted Settings (defaults if missing/unreadable).
+#[tauri::command]
+pub async fn load_settings() -> Result<flowlens_core::Settings, String> {
+    Ok(flowlens_core::Settings::load(&settings_file_path()))
+}
+
+/// Persist the full Settings object to disk.
+#[tauri::command]
+pub async fn save_settings(settings: flowlens_core::Settings) -> Result<(), String> {
+    settings
+        .save(&settings_file_path())
+        .map_err(|e| format!("failed to save settings: {e}"))
 }
