@@ -1,18 +1,18 @@
 //! MCP (Model Context Protocol) server for FlowLens
-//!
-//! This module provides a complete JSON-RPC 2.0 server implementation
-//! that allows AI agents to query traffic data from FlowLens.
 
 use std::net::SocketAddr;
 
 pub mod json_rpc;
+pub mod named_pipe;
 pub mod server;
 pub mod tools;
 
 pub use json_rpc::{ErrorCode, JsonRpcError, JsonRpcRequest, JsonRpcResponse};
+pub use named_pipe::NamedPipeServer;
 pub use server::McpServerImpl;
 pub use tools::{
-    AggregateByHostTool, AggregateByPidTool, GetSessionTool, McpTool, QuerySessionsTool,
+    GetCaptureStatusTool, GetSessionStatsTool, GetTransactionTool, ListEndpointsTool,
+    ListTransactionsTool, McpTool, SearchTransactionsTool, ExportAsCurlTool, DiagnoseCaptureTool,
 };
 
 /// MCP server trait
