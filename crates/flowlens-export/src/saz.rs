@@ -207,8 +207,8 @@ mod tests {
     fn build_saz(path: &Path, pairs: &[(&str, &str)]) {
         let file = std::fs::File::create(path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
-        let options =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let options = zip::write::FileOptions::<()>::default()
+            .compression_method(zip::CompressionMethod::Stored);
 
         for (i, (client, server)) in pairs.iter().enumerate() {
             let name = format!("raw/{:02}_c.txt", i + 1);
