@@ -29,39 +29,52 @@ if (Test-Path $DriverPath) {
     return
 }
 
-# Install the driver
+# Install the driver using pnputil (Windows 10+) or sc
 if ($InstallDriver) {
     Write-Host "Installing FlowLens WFP driver..." -ForegroundColor Yellow
 
-    # Copy driver files
-    Copy-Item "$(Split-Path $PSCommandPath)" -Destination $DriverPath -Recurse -Force
+    $sysPath = Join-Path $DriverPath "flowlens.sys"
+    $infPath = Join-Path $DriverPath "flowlens.inf"
 
-    # Register driver in the registry
-    $DriverRegPath = "HKLM:\SYSTEM\CurrentControlSet\Services\flowlens"
-    if (-Not (Test-Path $DriverRegPath)) {
-        New-Item -Path $DriverRegPath -Force
+    if (Test-Path $infPath) {
+        # Preferred: pnputil
+        $pnputil = Join-Path $env:SystemRoot "System32\pnputil.exe"
+        if (Test-Path $pnputil) {
+            & $pnputil /add-driver $infPath /install
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "Driver installed via pnputil." -ForegroundColor Green
+            } else {
+                Write-Warning "pnputil failed; falling back to sc create."
+            }
+        }
     }
 
-    New-ItemProperty -Path $DriverRegPath -Name "DisplayName" -Value "FlowLens WFP Callout Driver" -PropertyType String -Force
-    New-ItemProperty -Path $DriverRegPath -Name "ServiceType" -Value 1 -PropertyType DWord -Force
-    New-ItemProperty -Path $DriverRegPath -Name "Start" -Value 3 -PropertyType DWord -Force
-    New-ItemProperty -Path $DriverRegPath -Name "ErrorControl" -Value 1 -PropertyType DWord -Force
-
-    Write-Host "FlowLens driver installed successfully!" -ForegroundColor Green
+    # Fallback: sc create
+    $existing = sc.exe query flowlens 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        sc.exe create flowlens type= kernel binPath= "$sysPath" start= demand
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Service created." -ForegroundColor Green
+        }
+    }
+    sc.exe start flowlens
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Driver started." -ForegroundColor Green
+    } else {
+        Write-Warning "Driver start failed (may require test signing: bcdedit /set testsigning on)."
+    }
 }
 
 # Uninstall the driver
 if ($UninstallDriver) {
     Write-Host "Uninstalling FlowLens WFP driver..." -ForegroundColor Yellow
 
-    $DriverPath = Join-Path $InstallPath "driver"
-    if (Test-Path $DriverPath) {
-        Remove-Item -Path $DriverPath -Recurse -Force
-    }
-
-    $DriverRegPath = "HKLM:\SYSTEM\CurrentControlSet\Services\flowlens"
-    if (Test-Path $DriverRegPath) {
-        Remove-Item -Path $DriverRegPath -Force
+    # Stop and delete service
+    sc.exe stop flowlens 2>$null
+    sc.exe delete flowlens 2>$null
+    $pnputil = Join-Path $env:SystemRoot "System32\pnputil.exe"
+    if (Test-Path $pnputil) {
+        & $pnputil /delete-driver flowlens.inf /uninstall 2>$null
     }
 
     Write-Host "FlowLens driver uninstalled successfully!" -ForegroundColor Green
