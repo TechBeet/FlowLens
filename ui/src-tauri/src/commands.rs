@@ -107,6 +107,38 @@ fn build_info(r: &TrafficRow) -> String {
     parts.join(" ")
 }
 
+/// Build a short human-readable description from a raw TrafficEvent (used when
+/// `TrafficRow::from_event` returns None — i.e. the event type doesn't have a
+/// full row representation, but we still want to surface basic info in the UI).
+fn build_info_from_event(e: &TrafficEvent) -> String {
+    let mut parts: Vec<&str> = Vec::with_capacity(3);
+    // Use the event type name as a fallback descriptor.
+    parts.push(match e {
+        TrafficEvent::ConnectionEstablished { .. } => "established",
+        TrafficEvent::ConnectionClosed { .. } => "closed",
+        TrafficEvent::CaptureDropped { .. } => "dropped",
+        TrafficEvent::PacketReceived { .. } => "packet",
+        TrafficEvent::TlsHandshake { .. } => "tls-hs",
+        TrafficEvent::HttpRequest { .. } => "http-req",
+        TrafficEvent::HttpResponse { .. } => "http-resp",
+        TrafficEvent::WebSocketFrame { .. } => "ws-frame",
+        TrafficEvent::SseEvent { .. } => "sse",
+        TrafficEvent::GrpcCall { .. } => "grpc",
+    });
+    // Attempt to include method or subtype if recognizable from the event.
+    // (For events that do have a TrafficRow conversion, the UI table will show
+    // the full method/path/status; for others we just surface the kind.)
+    format!("{}", parts.join(" "))
+}
+
+/// Build a short human-readable description from an already-computed kind
+/// string (used when we can't borrow the original event after a partial move).
+fn build_info_from_event_kind(kind: &str) -> String {
+    // Use the kind string directly as the info; the frontend will display
+    // the full details from the table columns for events that have a TrafficRow.
+    format!("{}", kind)
+}
+
 /// Classify an event into the per-protocol counters shown in the sidebar.
 fn tally(stats: &mut flowlens_core::TrafficStats, event: &TrafficEvent) {
     stats.total += 1;
@@ -187,11 +219,56 @@ pub async fn start_capture(
                     if let Err(e) = session_store.append(event.clone()) {
                         tracing::debug!(error = %e, "session_store append failed");
                     }
-                    if let Some(row) = TrafficRow::from_event(&event) {
-                        counter += 1;
-                        let ui_event = UiEvent::from_row(&row, counter);
-                        let _ = emit_handle.emit("traffic-event", ui_event);
-                    }
+                    // Always emit traffic-event to the frontend, so the UI event count
+                    // stays in sync with the backend stats. Convert to TrafficRow only
+                    // when the event type supports it; otherwise emit a minimal UiEvent
+                    // with the event kind so the frontend can display basic information.
+                    counter += 1;
+                    let event_id = counter;
+                    // Compute event kind and timestamp by matching a reference to
+                    // avoid moving out of `event`. The timestamp lives inside `conn`
+                    // for most variants, or directly for PacketReceived.
+                    let (event_kind, ts) = match &event {
+                        TrafficEvent::ConnectionEstablished { conn, .. } => ("connection", conn.timestamp),
+                        TrafficEvent::ConnectionClosed { conn } => ("closed", conn.timestamp),
+                        TrafficEvent::CaptureDropped { .. } => ("dropped", 0),
+                        TrafficEvent::PacketReceived { timestamp, .. } => ("packet", *timestamp),
+                        TrafficEvent::TlsHandshake { conn, .. } => ("tls", conn.timestamp),
+                        TrafficEvent::HttpRequest { conn, .. } => ("http_request", conn.timestamp),
+                        TrafficEvent::HttpResponse { conn, .. } => ("http_response", conn.timestamp),
+                        TrafficEvent::WebSocketFrame { conn, .. } => ("websocket", conn.timestamp),
+                        TrafficEvent::SseEvent { conn, .. } => ("sse", conn.timestamp),
+                        TrafficEvent::GrpcCall { conn, .. } => ("grpc", conn.timestamp),
+                    };
+                    let ui_event = if let Some(row) = TrafficRow::from_event(&event) {
+                        UiEvent::from_row(&row, event_id)
+                    } else {
+                        // Build a minimal UiEvent from the raw TrafficEvent.
+                        // Use the kind string for info; the frontend table columns will
+                        // show full details (method, path, status) for events that have
+                        // a TrafficRow conversion.
+                        let info = build_info_from_event_kind(&event_kind);
+                        UiEvent {
+                            id: event_id.to_string(),
+                            time: format_ts(ts),
+                            kind: event_kind.to_string(),
+                            info,
+                            size: 0,
+                            src_addr: None,
+                            dst_addr: None,
+                            method: None,
+                            url: None,
+                            status: None,
+                            process_name: None,
+                            pid: None,
+                            protocol: None,
+                            sni: None,
+                            tls_version: None,
+                            paused: false,
+                            rewrite_applied: false,
+                        }
+                    };
+                    let _ = emit_handle.emit("traffic-event", ui_event);
                     // Push stats to the frontend so dashboards stay live.
                     let _ = emit_handle.emit("stats-updated", stats_snapshot);
                 }
