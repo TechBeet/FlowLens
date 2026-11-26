@@ -169,6 +169,7 @@ pub async fn start_capture(
         while running.load(Ordering::SeqCst) {
             match rx.recv().await {
                 Ok(event) => {
+                    tracing::debug!(?event, "capture pump: received event");
                     let stats_snapshot = {
                         // Poison-tolerant: `TrafficStats` is a set of counters;
                         // a panicking task cannot corrupt them, so recover.
@@ -272,15 +273,18 @@ pub async fn start_capture(
     match engine {
         Engine::Driver(_) => {
             println!("FlowLens WFP driver engine selected");
+            tracing::info!("capture: driver engine selected");
             flowlens_capture::spawn_engine_pump(engine, bus.clone());
         }
         Engine::Pcap(_) => {
             println!("Npcap engine selected");
+            tracing::info!("capture: pcap engine selected");
             flowlens_capture::spawn_engine_pump(engine, bus.clone());
             flowlens_capture::spawn_mock_producer(bus);
         }
         Engine::Mock(_) => {
             println!("Npcap unavailable, using mock producer");
+            tracing::info!("capture: mock engine selected, using mock producer");
             flowlens_capture::spawn_mock_producer(bus);
         }
     }
@@ -1656,6 +1660,65 @@ mod tests {
         assert!(normalize_rewrite_priority(&mut value).is_err());
     }
 }
+// ---------- Diagnostics & log retrieval ----------
+
+/// Return the last N lines of the most recent flowlens log file.
+#[tauri::command]
+pub async fn get_recent_logs(lines: Option<usize>) -> Result<String, String> {
+    let log_dir = std::env::var("APPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("FlowLens");
+    let n = lines.unwrap_or(200);
+
+    // Collect all daily log files sorted by modification time (newest first).
+    let mut files: Vec<_> = std::fs::read_dir(&log_dir)
+        .map_err(|e| format!("failed to read log dir: {e}"))?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("flowlens.log")
+        })
+        .collect();
+    files.sort_by_key(|e| std::cmp::Reverse(e.metadata().and_then(|m| m.modified()).ok()));
+
+    let mut result = String::new();
+    for file in files {
+        if let Ok(content) = std::fs::read_to_string(file.path()) {
+            let all_lines: Vec<&str> = content.lines().collect();
+            let start = all_lines.len().saturating_sub(n);
+            for line in &all_lines[start..] {
+                result.push_str(line);
+                result.push('\n');
+            }
+            break;
+        }
+    }
+    Ok(result)
+}
+
+/// Return a structured diagnostics snapshot of the running app.
+#[tauri::command]
+pub async fn get_diagnostics(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let stats = state.stats.lock().map_err(|e| e.to_string())?.clone();
+    let event_count = state.events.lock().map_err(|e| e.to_string())?.len();
+    let session_count = state.session_store.len() as u64;
+    let capture_running = state.running.load(Ordering::SeqCst);
+    let rewrite_rules = state.rewrite_engine.lock().map_err(|e| e.to_string())?.list_rules().len();
+    let decrypt_domains = state.decrypt_policy.lock().map_err(|e| e.to_string())?.rules().len();
+
+    Ok(serde_json::json!({
+        "capture_running": capture_running,
+        "stats": stats,
+        "event_count": event_count,
+        "session_count": session_count,
+        "rewrite_rules": rewrite_rules,
+        "decrypt_domains": decrypt_domains,
+        "log_dir": std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string()) + "\\FlowLens",
+    }))
+}
+
 // ---------- Settings persistence (settings.json under %APPDATA%\FlowLens) ----------
 
 fn settings_file_path() -> PathBuf {

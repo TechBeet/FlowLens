@@ -1,6 +1,7 @@
 mod commands;
-mod proxy;
-mod state;
+pub mod logging;
+pub mod proxy;
+pub mod state;
 
 use flowlens_core::BroadcastEventBus;
 

@@ -12,11 +12,14 @@ tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 flowlens-core = { path = "../../crates/flowlens-core" }
+flowlens-protocol = { path = "../../crates/flowlens-protocol" }
 flowlens-capture = { path = "../../crates/flowlens-capture" }
 flowlens-tls = { path = "../../crates/flowlens-tls" }
 flowlens-replay = { path = "../../crates/flowlens-replay" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"] }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tracing-appender = "0.2"
 tauri-plugin-dialog = "2"
 chrono = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }

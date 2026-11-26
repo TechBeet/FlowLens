@@ -294,6 +294,24 @@ export async function getEventMax(): Promise<number> {
   }
 }
 
+/// Return the last N lines of the flowlens log file (for self-diagnostics).
+export async function getRecentLogs(lines = 200): Promise<string> {
+  try {
+    return await invoke<string>("get_recent_logs", { lines });
+  } catch {
+    return "(日志不可用)";
+  }
+}
+
+/// Return structured diagnostics snapshot (stats, counts, log path).
+export async function getDiagnostics(): Promise<Record<string, unknown>> {
+  try {
+    return await invoke<Record<string, unknown>>("get_diagnostics");
+  } catch {
+    return {};
+  }
+}
+
 /// Persisted application settings (capture backend, theme, rules, filter profiles).
 export interface AppSettings {
   capture: { backend: string; filter: string; auto_start: boolean };

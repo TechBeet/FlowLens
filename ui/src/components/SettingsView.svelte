@@ -19,7 +19,7 @@ import type {
   import type { Shortcut, ShortcutCombo } from "../lib/shortcuts";
   import { shortcutRegistry, formatCombo, DEFAULT_SHORTCUTS } from "../lib/shortcuts";
 
-  let activeTab = $state<"general" | "shortcuts" | "about" | "rewrite">("general");
+  let activeTab = $state<"general" | "shortcuts" | "about" | "rewrite" | "diagnostics">("general");
   // 主题下拉框的本地选中值；通过下面的 $effect 与外部传入的 `theme` 保持同步。
   let themePreference = $state<"dark" | "light">("dark");
   $effect(() => {
@@ -661,7 +661,7 @@ import type {
             </div>
           </div>
 
-        {:else if activeTab === "about"}
+        {:else if activeTab === "diagnostics"}
           <div class="about-section">
             <h3>FlowLens</h3>
             <p>版本：0.2.0</p>

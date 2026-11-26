@@ -1,8 +1,10 @@
 use crate::state::AppState;
+use flowlens_core::event_bus::EventBus;
 use flowlens_tls::{extract_sni, InMemoryTlsEngine};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 /// Default listening port when none is configured.
@@ -16,6 +18,7 @@ pub const DEFAULT_PORT: u16 = 8080;
 pub struct ProxyRuntime {
     engine: Arc<Mutex<InMemoryTlsEngine>>,
     policy: Arc<Mutex<flowlens_tls::DomainPolicy>>,
+    event_bus: Arc<flowlens_core::BroadcastEventBus>,
     running: Arc<AtomicBool>,
 }
 
@@ -24,6 +27,7 @@ impl ProxyRuntime {
         Self {
             engine: state.ca_manager.clone(),
             policy: state.decrypt_policy.clone(),
+            event_bus: state.event_bus.clone(),
             running: Arc::new(AtomicBool::new(true)),
         }
     }
@@ -55,8 +59,9 @@ impl ProxyRuntime {
                 Ok((stream, peer)) = listener.accept(), if running.load(Ordering::Relaxed) => {
                     let engine = self.engine.clone();
                     let policy = self.policy.clone();
+                    let event_bus = self.event_bus.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = handle_connection(engine, policy, stream, peer).await {
+                        if let Err(e) = handle_connection(engine, policy, event_bus, stream, peer).await {
                             tracing::warn!(peer = %peer, error = %e, "MITM proxy connection dropped");
                         }
                     });
@@ -80,6 +85,7 @@ impl ProxyRuntime {
 async fn handle_connection(
     engine: Arc<Mutex<InMemoryTlsEngine>>,
     policy: Arc<Mutex<flowlens_tls::DomainPolicy>>,
+    event_bus: Arc<flowlens_core::BroadcastEventBus>,
     stream: tokio::net::TcpStream,
     peer: std::net::SocketAddr,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -127,9 +133,41 @@ async fn handle_connection(
                 Ok(cfg) => {
                     let acceptor = flowlens_tls::MitmTlsAcceptor::new(cfg);
                     match acceptor.accept(stream).await {
-                        Ok(_tls) => {
+                        Ok(mut tls) => {
                             tracing::info!(%sni, peer = %peer, "MITM: terminated TLS with per-host leaf cert");
-                            // TODO: hand decrypted plaintext to the capture pipeline.
+                            // Read decrypted plaintext request from client.
+                            let mut buf = vec![0u8; 64 * 1024];
+                            let n = match tokio::time::timeout(
+                                std::time::Duration::from_secs(5),
+                                tls.read(&mut buf),
+                            )
+                            .await
+                            {
+                                Ok(Ok(n)) => n,
+                                _ => 0,
+                            };
+                            if n > 0 {
+                                let parser = flowlens_protocol::Http1Parser::new();
+                                if let Some(req) = parser.parse_http1_request(&buf[..n]) {
+                                    let conn = flowlens_core::models::ConnectionKey {
+                                        src_addr: peer,
+                                        dst_addr: format!("{}:443", sni).parse().unwrap_or(peer),
+                                        protocol: flowlens_core::models::TransportProtocol::Tcp,
+                                        connection_id: 0,
+                                        timestamp: chrono::Utc::now().timestamp_micros(),
+                                        interface_guid: None,
+                                    };
+                                    let event = flowlens_core::models::TrafficEvent::HttpRequest {
+                                        session_id: flowlens_core::models::SessionId(0),
+                                        conn,
+                                        request: req,
+                                    };
+                                    let _ = event_bus.publish(event);
+                                }
+                            }
+                            // Echo a minimal response back to keep the client happy.
+                            let _ = tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                            let _ = tls.shutdown().await;
                         }
                         Err(e) => {
                             tracing::warn!(%sni, peer = %peer, error = %e, "MITM: TLS accept failed");
