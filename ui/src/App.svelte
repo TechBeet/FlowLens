@@ -14,7 +14,7 @@
   import FilterBar from "./components/FilterBar.svelte";
 import SettingsView from "./components/SettingsView.svelte";
 import { createEventStore } from "./lib/stores/eventStore.svelte";
-import { filterEvents } from "./lib/composables";
+import { filterEvents, searchEvents } from "./lib/composables";
 
   export interface ReplayEntry {
     id: number;
@@ -38,7 +38,9 @@ import { filterEvents } from "./lib/composables";
   let selectedEvent = $state<TrafficEvent | null>(null);
   let stats = $state<TrafficStats>({ connections: 0, http: 0, tls: 0, sse: 0, websocket: 0, total: 0 });
   let sharedStore = createEventStore();
-  let filteredForTable = $derived(filterEvents(events, sharedStore.filterState));
+  let filteredForTable = $derived(
+    searchEvents(filterEvents(events, sharedStore.filterState), sharedStore.searchQuery),
+  );
 
   async function handleReplay(sessionId: number, delayMs: number, headers: Record<string, string>) {
     try {

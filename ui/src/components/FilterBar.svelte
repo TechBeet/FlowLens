@@ -12,9 +12,11 @@
 
   // Reference to the first (host) filter input, exposed via `bind:this`.
   let hostInput = $state<HTMLInputElement | null>(null);
+  let searchInput = $state<HTMLInputElement | null>(null);
 
   function handleClear() {
     store.clearFilter();
+    store.clearSearch();
   }
 
   /** Focus and select the host input, scrolling it into view when possible. */
@@ -33,6 +35,17 @@
 </script>
 
 <div class="filter-bar" role="search" aria-label="流量过滤">
+  <label class="filter-label" for="filter-search">搜索</label>
+  <input
+    type="search"
+    id="filter-search"
+    bind:this={searchInput}
+    bind:value={store.searchQuery}
+    oninput={(e) => store.setSearch((e.currentTarget as HTMLInputElement).value)}
+    placeholder="关键字（method/url/状态）"
+    class="filter-input filter-search"
+  />
+
   <label class="filter-label" for="filter-host">主机</label>
   <input
     type="text"
@@ -113,6 +126,10 @@
     border-radius: 4px;
     color: var(--fg);
     font-size: 12px;
+  }
+
+  .filter-search {
+    width: 200px;
   }
 
   .filter-input:focus {

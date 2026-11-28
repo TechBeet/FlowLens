@@ -5,7 +5,7 @@ use flowlens_core::models::{
     ConnectionKey, HttpRequest, HttpResponse, HttpVersion, MatchQuality, ProcessArch, ProcessInfo,
     ProtocolKind, SessionId, TrafficSession, TransportProtocol,
 };
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 
 pub struct SazImporter;
@@ -198,6 +198,99 @@ fn reason_phrase(code: u16) -> &'static str {
     }
 }
 
+// ── SAZ export ──────────────────────────────────────────────────────────────
+
+fn version_str(v: &HttpVersion) -> &'static str {
+    match v {
+        HttpVersion::Http10 => "HTTP/1.0",
+        HttpVersion::Http11 => "HTTP/1.1",
+        HttpVersion::Http2 => "HTTP/2",
+        HttpVersion::Http3 => "HTTP/3",
+        HttpVersion::Unknown => "HTTP/0.9",
+    }
+}
+
+/// Reconstruct the raw client request text (request line + headers + body).
+fn build_client_raw(session: &TrafficSession) -> String {
+    let mut out = String::new();
+    if let Some(req) = &session.http_request {
+        out.push_str(&format!(
+            "{} {} {}\r\n",
+            req.method,
+            req.url,
+            version_str(&req.request_line_version)
+        ));
+        for (k, v) in &req.headers {
+            out.push_str(&format!("{}: {}\r\n", k, v));
+        }
+        out.push_str("\r\n");
+        if let Some(body) = &req.body {
+            out.push_str(&String::from_utf8_lossy(body));
+        }
+    }
+    out
+}
+
+/// Reconstruct the raw server response text (status line + headers + body).
+fn build_server_raw(session: &TrafficSession) -> String {
+    let mut out = String::new();
+    if let Some(resp) = &session.http_response {
+        out.push_str(&format!(
+            "{} {} {}\r\n",
+            version_str(&resp.version),
+            resp.status_code,
+            resp.status_text
+        ));
+        for (k, v) in &resp.headers {
+            out.push_str(&format!("{}: {}\r\n", k, v));
+        }
+        out.push_str("\r\n");
+        if let Some(body) = &resp.body {
+            out.push_str(&String::from_utf8_lossy(body));
+        }
+    }
+    out
+}
+
+/// SAZ (Fiddler session archive) exporter.
+pub struct SazExporter;
+
+impl SazExporter {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Export traffic sessions into a SAZ zip archive at `path`.
+    pub fn export_sessions(&self, sessions: &[TrafficSession], path: &Path) -> Result<()> {
+        let file = std::fs::File::create(path)
+            .with_context(|| format!("failed to create SAZ file: {}", path.display()))?;
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::FileOptions::<()>::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        for (i, session) in sessions.iter().enumerate() {
+            let idx = i + 1;
+            let client = build_client_raw(session);
+            let server = build_server_raw(session);
+
+            zip.start_file(format!("raw/{:02}_c.txt", idx), options)?;
+            zip.write_all(client.as_bytes())?;
+
+            zip.start_file(format!("raw/{:02}_s.txt", idx), options)?;
+            zip.write_all(server.as_bytes())?;
+        }
+
+        zip.finish().context("failed to finalize SAZ archive")?;
+        Ok(())
+    }
+}
+
+impl Default for SazExporter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,5 +412,88 @@ mod tests {
         let path = temp_path("missing");
         let result = SazImporter::new().import(&path);
         assert!(result.is_err());
+    }
+
+    fn sample_session(method: &str, url: &str, status: u16) -> TrafficSession {
+        TrafficSession {
+            session_id: SessionId(1),
+            conn: ConnectionKey {
+                src_addr: "127.0.0.1:12345".parse().unwrap(),
+                dst_addr: "93.184.216.34:443".parse().unwrap(),
+                protocol: TransportProtocol::Tcp,
+                connection_id: 1,
+                timestamp: 0,
+                interface_guid: None,
+            },
+            process: ProcessInfo {
+                pid: 1234,
+                name: "test.exe".to_string(),
+                exe_path: None,
+                user_sid: String::new(),
+                arch: ProcessArch::X64,
+                match_quality: MatchQuality::Unspecified,
+            },
+            tls: None,
+            protocol: ProtocolKind::Http1,
+            http_request: Some(HttpRequest {
+                method: method.to_string(),
+                url: url.to_string(),
+                path: url.split('?').next().unwrap_or(url).to_string(),
+                request_line_version: HttpVersion::Http11,
+                headers: vec![("Host".to_string(), "example.com".to_string())],
+                body: None,
+                body_size: 0,
+                timestamp: 0,
+            }),
+            http_response: Some(HttpResponse {
+                status_code: status,
+                status_text: reason_phrase(status).to_string(),
+                version: HttpVersion::Http11,
+                headers: vec![("Content-Type".to_string(), "text/plain".to_string())],
+                body: Some(b"hello".to_vec()),
+                body_size: 5,
+                timestamp: 0,
+            }),
+            websocket_frames: vec![],
+            sse_events: vec![],
+            grpc_call: None,
+            started_at: 0,
+            ended_at: None,
+            bytes_sent: 0,
+            bytes_received: 0,
+        }
+    }
+
+    #[test]
+    fn test_export_roundtrip() {
+        let path = temp_path("export");
+        let sessions = vec![
+            sample_session("GET", "/index.html", 200),
+            sample_session("POST", "/submit", 500),
+        ];
+        SazExporter::new().export_sessions(&sessions, &path).unwrap();
+
+        // Re-import the archive we just wrote and verify the data survives.
+        let imported = SazImporter::new().import(&path).unwrap();
+        assert_eq!(imported.len(), 2);
+        assert_eq!(imported[0].http_request.as_ref().unwrap().method, "GET");
+        assert_eq!(
+            imported[0].http_request.as_ref().unwrap().url,
+            "/index.html"
+        );
+        assert_eq!(imported[0].http_response.as_ref().unwrap().status_code, 200);
+        assert_eq!(imported[1].http_request.as_ref().unwrap().method, "POST");
+        assert_eq!(imported[1].http_response.as_ref().unwrap().status_code, 500);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_export_empty_sessions() {
+        let path = temp_path("empty_export");
+        SazExporter::new().export_sessions(&[], &path).unwrap();
+        let imported = SazImporter::new().import(&path).unwrap();
+        assert!(imported.is_empty());
+        let _ = std::fs::remove_file(&path);
     }
 }

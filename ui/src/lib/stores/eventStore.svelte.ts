@@ -8,6 +8,7 @@ import * as api from "../api";
 import {
   subscribeTrafficEvents,
   filterEvents,
+  searchEvents,
   addBatchStats,
   type AggregatedStats,
 } from "../composables";
@@ -45,6 +46,7 @@ export function createEventStore() {
     total: 0,
   });
   let filterState = $state<FilterState>({ ...DEFAULT_FILTER });
+  let searchQuery = $state("");
   let loading = $state(false);
   let error = $state<string | null>(null);
   let droppedEvents = $state(0);
@@ -124,7 +126,10 @@ export function createEventStore() {
   }
 
   // ----- derived -----
-  const filteredEvents = $derived.by(() => filterEvents(events, filterState));
+  // Pipeline: structural filter (host/method/…) then free-text keyword search.
+  const filteredEvents = $derived.by(() =>
+    searchEvents(filterEvents(events, filterState), searchQuery),
+  );
   const isEmpty = $derived(events.length === 0 && !loading);
 
 
@@ -229,6 +234,14 @@ export function createEventStore() {
     Object.assign(filterState, { ...DEFAULT_FILTER });
   }
 
+  function setSearch(query: string) {
+    searchQuery = query;
+  }
+
+  function clearSearch() {
+    searchQuery = "";
+  }
+
   function select(ev: UiEvent | null) {
     selectedEvent = ev;
   }
@@ -276,6 +289,9 @@ export function createEventStore() {
     get filterState() {
       return filterState;
     },
+    get searchQuery() {
+      return searchQuery;
+    },
     get loading() {
       return loading;
     },
@@ -310,6 +326,8 @@ export function createEventStore() {
     pauseSession,
     releaseSession,
     setFilter,
+    setSearch,
+    clearSearch,
     clearFilter,
     select,
     appendEvent,

@@ -43,6 +43,63 @@ impl HarExporter for HarExporterImpl {
     }
 }
 
+/// HAR import trait
+pub trait HarImporter: Send + Sync {
+    fn import(&self, json: &str) -> anyhow::Result<Vec<TrafficSession>>;
+    fn import_from_file(&self, path: &Path) -> anyhow::Result<Vec<TrafficSession>>;
+}
+
+/// SAZ export trait
+pub trait SazExporter: Send + Sync {
+    fn export(&self, sessions: &[TrafficSession], path: &Path) -> anyhow::Result<()>;
+}
+
+/// HAR importer implementation.
+pub struct HarImporterImpl;
+
+impl HarImporterImpl {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for HarImporterImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HarImporter for HarImporterImpl {
+    fn import(&self, json: &str) -> anyhow::Result<Vec<TrafficSession>> {
+        Ok(har::HarImporter::import_str(json)?)
+    }
+
+    fn import_from_file(&self, path: &Path) -> anyhow::Result<Vec<TrafficSession>> {
+        har::HarImporter::import_file(path)
+    }
+}
+
+/// SAZ exporter implementation.
+pub struct SazExporterImpl;
+
+impl SazExporterImpl {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for SazExporterImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SazExporter for SazExporterImpl {
+    fn export(&self, sessions: &[TrafficSession], path: &Path) -> anyhow::Result<()> {
+        saz::SazExporter::new().export_sessions(sessions, path)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,5 +109,12 @@ mod tests {
         let exporter = HarExporterImpl::new();
         let result = exporter.export(&[]).unwrap();
         assert!(result.contains("\"entries\""));
+    }
+
+    #[test]
+    fn test_har_import_empty() {
+        let importer = HarImporterImpl::new();
+        let sessions = importer.import("{\"log\":{\"version\":\"1.2\",\"creator\":{\"name\":\"x\",\"version\":\"1\"},\"entries\":[]}}").unwrap();
+        assert!(sessions.is_empty());
     }
 }

@@ -62,7 +62,8 @@ describe("FilterBar.focus()", () => {
     const { container } = renderBar();
     const labels = Array.from(container.querySelectorAll("label[for]"));
 
-    expect(labels.length).toBe(5);
+    // 5 structural filters (host/process/pid/method/status) + 1 keyword search.
+    expect(labels.length).toBe(6);
     for (const label of labels) {
       const target = container.querySelector(`#${label.getAttribute("for")}`);
       expect(target).not.toBeNull();
